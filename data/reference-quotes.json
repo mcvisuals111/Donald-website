@@ -1,0 +1,37 @@
+{
+  "source": "synthetic seed (scripts/make-seed.mjs) — replaced at build time by scripts/fetch-es-daily.mjs",
+  "synthetic": true,
+  "fetchedAt": null,
+  "quotes": [
+    {
+      "symbol": "ES",
+      "price": 6284.44,
+      "change": -67.87,
+      "changePercent": -1.08
+    },
+    {
+      "symbol": "NQ",
+      "price": 22812.52,
+      "change": -317.09,
+      "changePercent": -1.39
+    },
+    {
+      "symbol": "YM",
+      "price": 46002.1,
+      "change": -409.42,
+      "changePercent": -0.89
+    },
+    {
+      "symbol": "RTY",
+      "price": 2400.66,
+      "change": -30.97,
+      "changePercent": -1.29
+    },
+    {
+      "symbol": "SPX",
+      "price": 6263.07,
+      "change": -67.64,
+      "changePercent": -1.08
+    }
+  ]
+}
