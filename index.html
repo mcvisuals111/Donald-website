@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Donald Mackenzie — One-on-one trading lessons</title>
+<meta name="description" content="One-on-one lessons on the S&P 500, the Nasdaq, and futures. In person, one hour at a time.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#08090B; --panel:#111318; --border:#1E222A;
+  --text:#E6E8EB; --muted:#8B929E; --dim:#5B626D;
+  --up:#16C784; --down:#EA3943;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sans:'Inter',system-ui,sans-serif;
+  --max:1100px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+body.locked{overflow:hidden;height:100vh}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--up);outline-offset:4px}
+
+/* ---------- stage ---------- */
+#stage{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+#sprog{position:fixed;top:0;left:0;height:2px;width:0;background:var(--up);z-index:70}
+
+/* ---------- preloader ---------- */
+#pre{position:fixed;inset:0;z-index:999;background:var(--bg);display:flex;flex-direction:column;justify-content:flex-end;padding:40px 24px;transition:transform 1s cubic-bezier(.76,0,.24,1)}
+#pre.gone{transform:translateY(-101%)}
+.preline{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--dim);max-width:var(--max);margin:0 auto;width:100%}
+#pct{font-size:clamp(4rem,17vw,11rem);line-height:.78;letter-spacing:-.05em;font-weight:800;max-width:var(--max);margin:0 auto;width:100%}
+#bar{height:1px;background:var(--border);max-width:var(--max);margin:26px auto 0;width:100%;position:relative;overflow:hidden}
+#bar i{position:absolute;inset:0 100% 0 0;background:var(--up);transition:right .18s linear}
+
+/* ---------- nav ---------- */
+nav{position:fixed;top:0;left:0;right:0;z-index:60;background:linear-gradient(to bottom,rgba(8,9,11,.9),transparent)}
+.navin{max-width:var(--max);margin:0 auto;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.mark{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-decoration:none}
+.navlinks{display:flex;gap:24px}
+.navlinks a{font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;color:var(--muted);text-decoration:none;transition:color .2s}
+.navlinks a:hover{color:var(--up)}
+@media(max-width:820px){.navlinks{display:none}}
+.btn{display:inline-block;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;padding:11px 20px;border:1px solid var(--border);background:rgba(8,9,11,.6);backdrop-filter:blur(6px);color:var(--text);text-decoration:none;transition:border-color .22s,color .22s;will-change:transform}
+.btn:hover{border-color:var(--up);color:var(--up)}
+.btn.solid{background:var(--up);border-color:var(--up);color:#04120B;font-weight:500}
+.btn.solid:hover{background:#12AF70;border-color:#12AF70;color:#04120B}
+
+/* ---------- scenes ---------- */
+.scene{height:190vh;position:relative;z-index:2}
+.scene .pin{position:sticky;top:0;height:100svh;display:flex;align-items:center;pointer-events:none}
+.scene .box{max-width:var(--max);margin:0 auto;padding:0 24px;width:100%;opacity:0;transform:translateY(30px);transition:opacity 1.15s cubic-bezier(.22,1,.36,1),transform 1.15s cubic-bezier(.22,1,.36,1);pointer-events:auto}
+.scene.lit .box{opacity:1;transform:none}
+.scene .box.mid{text-align:center;max-width:760px}
+.scene .box.low{align-self:flex-end;padding-bottom:12vh}
+
+.tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.28em;color:var(--dim);text-transform:uppercase;display:block;margin-bottom:20px}
+.say{font-size:clamp(1.15rem,2.5vw,1.9rem);font-weight:600;letter-spacing:-.025em;max-width:24ch;margin:0}
+.mid .say{margin:0 auto}
+.say .g{color:var(--up)}.say .r{color:var(--down)}
+.small{color:var(--muted);font-size:.95rem;max-width:46ch;margin:18px 0 0}
+.mid .small{margin:18px auto 0}
+.ctas{display:flex;gap:12px;flex-wrap:wrap;margin-top:30px}
+.mid .ctas{justify-content:center}
+
+/* glass panels used where there's real content */
+.glass{background:rgba(11,13,16,.62);backdrop-filter:blur(9px);border:1px solid var(--border);padding:clamp(22px,3vw,34px)}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.two{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;max-width:840px}
+@media(max-width:820px){.cols,.two{grid-template-columns:1fr}}
+.cols h3,.two h3{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;color:var(--muted);margin:0 0 10px;text-transform:uppercase}
+.cols p{color:var(--muted);font-size:.9rem;margin:0}
+.price{font-size:clamp(2.6rem,7vw,4rem);font-weight:800;letter-spacing:-.05em;line-height:.9;margin:0 0 4px}
+.per{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;color:var(--dim);margin-bottom:20px}
+ul.feat{list-style:none;margin:0 0 24px;padding:0}
+ul.feat li{color:var(--muted);font-size:.88rem;padding:9px 0 9px 18px;border-bottom:1px solid var(--border);position:relative}
+ul.feat li:last-child{border-bottom:0}
+ul.feat li::before{content:"";position:absolute;left:0;top:18px;width:8px;height:1px;background:var(--up)}
+.flag{position:absolute;top:-1px;right:-1px;font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;background:var(--up);color:#04120B;padding:5px 11px}
+.rel{position:relative}
+.notrow{display:grid;grid-template-columns:190px 1fr;gap:20px;padding:18px 0;border-top:1px solid var(--border)}
+@media(max-width:760px){.notrow{grid-template-columns:1fr;gap:6px}}
+.notrow dt{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--down);text-transform:uppercase}
+.notrow dd{margin:0;color:var(--muted);font-size:.92rem}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;counter-reset:s}
+@media(max-width:820px){.steps{grid-template-columns:1fr}}
+.step{counter-increment:s}
+.step::before{content:counter(s,decimal-leading-zero);font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;color:var(--up);display:block;margin-bottom:12px}
+.step h3{font-size:1rem;font-weight:600;margin:0 0 6px;font-family:var(--sans);letter-spacing:0;text-transform:none;color:var(--text)}
+.step p{color:var(--muted);font-size:.9rem;margin:0}
+.big-link{display:flex;justify-content:space-between;align-items:center;gap:18px;font-size:clamp(1.2rem,4vw,2.4rem);font-weight:700;letter-spacing:-.035em;text-decoration:none;color:var(--muted);padding:22px 0;border-top:1px solid var(--border);transition:color .25s,padding-left .25s}
+.big-link:last-of-type{border-bottom:1px solid var(--border)}
+.big-link:hover{color:var(--up);padding-left:12px}
+.big-link em{font-style:normal;font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;color:var(--dim)}
+.portrait{aspect-ratio:4/5;max-width:300px;background:var(--panel);border:1px solid var(--border);overflow:hidden;margin-bottom:22px}
+.portrait img{width:100%;height:100%;object-fit:cover;filter:saturate(.75);display:block}
+
+/* footer */
+footer{position:relative;z-index:2;background:var(--bg);border-top:1px solid var(--border);padding:90px 0 56px}
+.fw{max-width:var(--max);margin:0 auto;padding:0 24px}
+.fbig{font-size:clamp(1.9rem,8vw,5.6rem);line-height:.88;letter-spacing:-.045em;font-weight:800;text-transform:uppercase;margin:0 0 60px}
+.fbig .o{color:transparent;-webkit-text-stroke:1px var(--dim)}
+.frow{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:30px;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;color:var(--dim)}
+.fnav{display:flex;gap:20px;flex-wrap:wrap}
+.fnav a{color:var(--dim);text-decoration:none;transition:color .2s}
+.fnav a:hover{color:var(--up)}
+.fine{font-family:var(--mono);font-size:10px;line-height:1.9;max-width:80ch;color:#4A505A}
+
+/* reduced motion / no-canvas fallback */
+body.flat #stage{display:none}
+body.flat .scene{height:auto;padding:70px 0}
+body.flat .scene .pin{position:static;height:auto}
+body.flat .scene .box{opacity:1;transform:none}
+body.flat #pre{display:none}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body class="locked">
+
+<div id="sprog"></div>
+<canvas id="stage" aria-hidden="true"></canvas>
+
+<div id="pre">
+  <div class="preline"><span>Loading market data</span><span>ES · NQ · SPX</span></div>
+  <div id="pct">0</div>
+  <div id="bar"><i></i></div>
+</div>
+
+<nav>
+  <div class="navin">
+    <a href="#top" class="mark">DONALD MACKENZIE</a>
+    <div class="navlinks">
+      <a href="#markets">Markets</a><a href="#how">Process</a><a href="#lessons">Lessons</a><a href="#contact">Contact</a>
+    </div>
+    <a href="#contact" class="btn">Get in touch</a>
+  </div>
+</nav>
+
+<main>
+
+<section class="scene" id="top" data-shape="text" data-text="DONALD|MACKENZIE" data-weight=".9">
+  <div class="pin"><div class="box low">
+    <span class="tag">One-on-one · In person</span>
+    <p class="say">Learn to trade the indices. <span class="g">One student at a time.</span></p>
+    <p class="small">Lessons on the S&amp;P 500, the Nasdaq, and futures. One hour at a time. Bring a laptop — that's the whole list of requirements.</p>
+    <div class="ctas">
+      <a href="#contact" class="btn solid">Get in touch</a>
+      <a href="#markets" class="btn">See what we cover</a>
+    </div>
+  </div></div>
+</section>
+
+<section class="scene" id="markets" data-shape="chart">
+  <div class="pin"><div class="box">
+    <span class="tag">01 — Markets</span>
+    <p class="say">Three markets. Not forty tickers, not a Discord full of arrows.</p>
+    <div class="cols" style="margin-top:34px">
+      <div class="glass"><h3>ES — S&amp;P 500</h3><p>The most-watched index in the world, and the most liquid. Deep enough that your order doesn't move it, slow enough that you can think.</p></div>
+      <div class="glass"><h3>NQ — Nasdaq</h3><p>Faster, heavier, less forgiving. Same setups, bigger range. We get here once the basics hold up.</p></div>
+      <div class="glass"><h3>Futures</h3><p>How the index is actually traded — contracts, tick values, margin, and why the session opens at 6:00pm the night before.</p></div>
+    </div>
+  </div></div>
+</section>
+
+<section class="scene" data-shape="text" data-text="RISK">
+  <div class="pin"><div class="box mid">
+    <span class="tag">02 — The first thing we cover</span>
+    <p class="say">The stop is <span class="r">the only number on the chart you control.</span></p>
+    <p class="small">Everything else — where it goes, how fast, whether it comes back — is the market's decision, not yours.</p>
+  </div></div>
+</section>
+
+<section class="scene" data-shape="text" data-text="2R">
+  <div class="pin"><div class="box mid">
+    <span class="tag">03 — How a trade gets measured</span>
+    <p class="say">Two times what you're risking, <span class="g">or the trade isn't worth taking.</span></p>
+    <p class="small">Not dollars. R — multiples of the amount you had at risk. It's the only way to compare one trade to the next.</p>
+  </div></div>
+</section>
+
+<section class="scene" id="how" data-shape="text" data-text="HOW">
+  <div class="pin"><div class="box">
+    <span class="tag">04 — Process</span>
+    <p class="say">Three steps, and none of them involve an application form.</p>
+    <div class="steps" style="margin-top:34px">
+      <div class="glass step"><h3>Reach out</h3><p>Send a message, say where you're starting from, and pick a time. No subscription, no call before the call.</p></div>
+      <div class="glass step"><h3>Sit down together</h3><p>In person, side by side, your laptop open. You're looking at your own screen the whole time — that's the point.</p></div>
+      <div class="glass step"><h3>Trade your own account</h3><p>You leave with a setup you can run yourself. Nothing to log into afterwards, nobody to ask for permission.</p></div>
+    </div>
+  </div></div>
+</section>
+
+<section class="scene" id="lessons" data-shape="text" data-text="$100">
+  <div class="pin"><div class="box">
+    <span class="tag">05 — One hour</span>
+    <div class="two">
+      <div class="glass">
+        <div class="price">$100</div>
+        <div class="per">PER SESSION</div>
+        <ul class="feat">
+          <li>One-on-one, in person</li>
+          <li>Bring your own laptop</li>
+          <li>Pick the topic or start at the beginning</li>
+          <li>No package required</li>
+        </ul>
+        <a href="#contact" class="btn">Get in touch</a>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<section class="scene" data-shape="text" data-text="$200">
+  <div class="pin"><div class="box">
+    <span class="tag">06 — Two hours</span>
+    <div class="two">
+      <div class="glass rel">
+        <span class="flag">MOST USEFUL</span>
+        <div class="price">$200</div>
+        <div class="per">PER SESSION</div>
+        <ul class="feat">
+          <li>Everything in the one-hour session</li>
+          <li>Enough time to watch a live session together</li>
+          <li>Chart setup, sizing, and a full walkthrough of one setup</li>
+          <li>Better for a first lesson if you've never traded</li>
+        </ul>
+        <a href="#contact" class="btn solid">Get in touch</a>
+      </div>
+    </div>
+  </div></div>
+</section>
+
+<section class="scene" data-shape="image" data-src="donald.jpg" data-fallback="WHO">
+  <div class="pin"><div class="box">
+    <span class="tag">07 — Who you're learning from</span>
+    <div class="glass" style="max-width:560px">
+      <div class="portrait"><img src="donald.jpg" alt="Donald Mackenzie" onerror="this.parentNode.style.display='none'"></div>
+      <p class="small" style="color:var(--text);max-width:52ch;margin:0">Donald Mackenzie has spent the last few years trading the S&amp;P 500 and the Nasdaq, mostly through futures.</p>
+      <p class="small" style="max-width:52ch">He's not a fund manager and he doesn't want your money to trade. He sits down with one person at a time and teaches them how the index actually moves — what a candle is telling you, where the risk is, how much to size, and what to do when the trade goes against you.</p>
+      <p class="small" style="max-width:52ch">He's taught before, and the one-on-one format is deliberate. Most trading education is a video course you buy at midnight and never finish. This is an hour, in person, on your own screen, where you can stop him and ask why.</p>
+    </div>
+  </div></div>
+</section>
+
+<section class="scene" data-shape="text" data-text="NO">
+  <div class="pin"><div class="box">
+    <span class="tag">08 — What this isn't</span>
+    <div class="glass" style="max-width:700px">
+      <dl style="margin:0">
+        <div class="notrow"><dt>No signals</dt><dd>You will not get alerts telling you what to buy.</dd></div>
+        <div class="notrow"><dt>No account management</dt><dd>Donald does not trade anyone else's money and will not offer to.</dd></div>
+        <div class="notrow"><dt>No income promises</dt><dd>Nobody here is going to tell you what you'll make, because nobody knows, and anyone who tells you otherwise is selling something worse than a lesson.</dd></div>
+      </dl>
+    </div>
+  </div></div>
+</section>
+
+<section class="scene" id="contact" data-shape="text" data-text="TALK">
+  <div class="pin"><div class="box">
+    <span class="tag">09 — Contact</span>
+    <p class="say" style="margin-bottom:26px">Message him directly.</p>
+    <p class="small" style="margin:0 0 20px">Say what you already know and what you want out of the hour — that's how the first lesson gets planned.</p>
+    <a class="big-link" id="ig" href="#"><span>Instagram</span><em>OPEN</em></a>
+    <a class="big-link" id="em" href="#"><span>Email</span><em>OPEN</em></a>
+  </div></div>
+</section>
+
+</main>
+
+<footer>
+  <div class="fw">
+    <h2 class="fbig">One market.<br>One student.<br><span class="o">One hour.</span></h2>
+    <div class="frow">
+      <span class="mark">DONALD MACKENZIE</span>
+      <div class="fnav"><a href="#markets">Markets</a><a href="#how">Process</a><a href="#lessons">Lessons</a><a href="#contact">Contact</a></div>
+    </div>
+    <p class="fine">Educational content only. Nothing on this site is financial, investment, or trading advice. Trading futures and other leveraged products carries a substantial risk of loss. The chart shown on this page is illustrative and does not represent any account, trade, or result.</p>
+  </div>
+</footer>
+
+<script>
+/* ==========================================================
+   EDIT THESE TWO LINES — Donald's real handle and email
+   ========================================================== */
+const CONTACT = { instagram: "donaldmackenzie", email: "donald@example.com" };
+/* ========================================================== */
+
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+(function(){
+  const ig=document.getElementById('ig'), em=document.getElementById('em');
+  ig.href='https://instagram.com/'+CONTACT.instagram; ig.target='_blank'; ig.rel='noopener';
+  ig.firstElementChild.textContent='@'+CONTACT.instagram;
+  em.href='mailto:'+CONTACT.email; em.firstElementChild.textContent=CONTACT.email;
+})();
+
+/* scroll progress */
+addEventListener('scroll',()=>{
+  const h=document.documentElement.scrollHeight-innerHeight;
+  document.getElementById('sprog').style.width=(h>0?scrollY/h*100:0)+'%';
+},{passive:true});
+
+/* magnetic buttons */
+if(!RM && !matchMedia('(pointer:coarse)').matches){
+  document.querySelectorAll('.btn').forEach(b=>{
+    b.addEventListener('pointermove',e=>{
+      const r=b.getBoundingClientRect();
+      b.style.transform=`translate(${(e.clientX-r.left-r.width/2)*.2}px,${(e.clientY-r.top-r.height/2)*.28}px)`;
+    });
+    b.addEventListener('pointerleave',()=>{b.style.transition='transform .35s cubic-bezier(.22,1,.36,1)';b.style.transform='';setTimeout(()=>b.style.transition='',360);});
+    b.addEventListener('pointerenter',()=>b.style.transition='');
+  });
+}
+
+/* ============================================================
+   THE STAGE — one particle field, morphing between shapes
+   ============================================================ */
+const Stage = (function(){
+  const cv=document.getElementById('stage'), ctx=cv.getContext('2d');
+  const scenes=[...document.querySelectorAll('.scene')];
+  let W=0,H=0,dpr=1,P=[],shapes=[],active=-1,raf=null,vel=0,lastY=0;
+  const COUNT = () => (innerWidth<760 ? 1300 : innerWidth<1200 ? 2200 : 3000);
+
+  /* ---- shape builders: each returns [{x,y,c}] ---- */
+  function fromText(lines){
+    const off=document.createElement('canvas'); off.width=W; off.height=H;
+    const o=off.getContext('2d');
+    const rows=lines.split('|');
+    const size=Math.min(W/(Math.max(...rows.map(r=>r.length))*0.62), H/(rows.length*1.35));
+    o.fillStyle='#fff'; o.textAlign='center'; o.textBaseline='middle';
+    o.font=`900 ${size}px Inter, system-ui, sans-serif`;
+    const lh=size*1.02, startY=H/2-(rows.length-1)*lh/2;
+    rows.forEach((r,i)=>o.fillText(r,W/2,startY+i*lh));
+    return sample(o,null);
+  }
+  function fromChart(){
+    const off=document.createElement('canvas'); off.width=W; off.height=H;
+    const o=off.getContext('2d');
+    let s=48271,p=100; const r=()=>(s=s*16807%2147483647)/2147483647;
+    const n=Math.max(26,Math.min(56,Math.floor(W/26)));
+    const cw=W*0.74/n, x0=W*0.13;
+    const pts=[];
+    for(let i=0;i<n;i++){ const oo=p,cc=oo+(r()-.47)*7,w=2+r()*4; pts.push({o:oo,c:cc,h:Math.max(oo,cc)+w,l:Math.min(oo,cc)-w}); p=cc; }
+    const hi=Math.max(...pts.map(d=>d.h)), lo=Math.min(...pts.map(d=>d.l));
+    const yy=v=>H*0.72-(v-lo)/((hi-lo)||1)*H*0.46;
+    o.fillStyle='#fff';
+    pts.forEach((d,i)=>{
+      const x=x0+i*cw+cw/2, bw=Math.max(3,cw*0.55);
+      o.fillRect(x-0.9,yy(d.h),1.8,Math.max(2,yy(d.l)-yy(d.h)));
+      const t=yy(Math.max(d.o,d.c)),b=yy(Math.min(d.o,d.c));
+      o.fillRect(x-bw/2,t,bw,Math.max(3,b-t));
+    });
+    const out=sample(o,null);
+    return out.map(pt=>({...pt, c: pt.y < H*0.5 ? '#16C784' : (Math.random()>.45?'#16C784':'#EA3943')}));
+  }
+  function fromImage(img){
+    const off=document.createElement('canvas'); off.width=W; off.height=H;
+    const o=off.getContext('2d');
+    const box=Math.min(W*0.42,H*0.72);
+    const ar=img.width/img.height;
+    let w=box*ar, h=box; if(w>W*0.5){w=W*0.5;h=w/ar;}
+    o.drawImage(img, W*0.62-w/2, H/2-h/2, w, h);
+    return sample(o,true);
+  }
+  function sample(o,colored){
+    const d=o.getImageData(0,0,W,H).data;
+    const gap = W<760?6:5, out=[];
+    for(let y=0;y<H;y+=gap){
+      for(let x=0;x<W;x+=gap){
+        const i=(y*W+x)*4;
+        if(d[i+3]>135){
+          if(colored){
+            const lum=(d[i]*.299+d[i+1]*.587+d[i+2]*.114)/255;
+            if(lum<0.12) continue;
+            out.push({x,y,c:`rgb(${d[i]},${d[i+1]},${d[i+2]})`});
+          } else out.push({x,y,c:null});
+        }
+      }
+    }
+    return out;
+  }
+
+  function buildShapes(){
+    shapes = scenes.map(sec=>{
+      const kind=sec.dataset.shape;
+      if(kind==='chart') return fromChart();
+      if(kind==='image'){
+        const img=sec._img;
+        if(img && img.complete && img.naturalWidth>2) return fromImage(img);
+        return fromText(sec.dataset.fallback||'WHO');
+      }
+      return fromText(sec.dataset.text||'');
+    });
+  }
+
+  function makeParticles(){
+    const n=COUNT();
+    P=new Array(n);
+    for(let i=0;i<n;i++){
+      P[i]={
+        x:Math.random()*W, y:Math.random()*H,
+        vx:0, vy:0,
+        w:1.5+Math.random()*1.7, h:2.4+Math.random()*5,
+        up:Math.random()>0.44,
+        k:0.016+Math.random()*0.028,   // soft springs — they drift in, never snap
+        drag:0.90+Math.random()*0.045,
+        ph:Math.random()*6.2832,
+        d:0, c:null
+      };
+    }
+  }
+
+  function fit(){
+    dpr=Math.min(devicePixelRatio||1,2);
+    W=cv.clientWidth; H=cv.clientHeight;
+    cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+    makeParticles(); buildShapes(); assign(active<0?0:active, true);
+  }
+
+  /* every scene arrives a different way, so no two transitions feel alike */
+  const STYLES=['wave','fall','radial','columns','drift','unwind','rise'];
+  const DUR=3200, SPREAD=0.62;
+  let morphStart=-1e9, style='wave';
+
+  function assign(idx, first){
+    const pts=shapes[idx]; if(!pts||!pts.length) return;
+    const n=P.length, m=pts.length;
+    style = STYLES[idx % STYLES.length];
+    morphStart = performance.now();
+    const cx=W/2, cy=H/2, maxd=Math.hypot(cx,cy);
+
+    for(let i=0;i<n;i++){
+      const q=P[i], t=pts[(i*7919)%m];
+      q.tx=t.x; q.ty=t.y; q.c=t.c;
+      if(i%53===0){ q.tx+=(Math.random()-.5)*W*0.5; q.ty+=(Math.random()-.5)*H*0.4; }
+
+      // when this particle starts being pulled (0 = immediately, 1 = last)
+      switch(style){
+        case 'wave':    q.d = q.tx/W; break;
+        case 'unwind':  q.d = 1-q.tx/W; break;
+        case 'fall':    q.d = 1-q.ty/H; break;
+        case 'rise':    q.d = q.ty/H; break;
+        case 'radial':  q.d = Math.hypot(q.tx-cx,q.ty-cy)/maxd; break;
+        case 'columns': q.d = ((Math.floor(q.tx/(W/14))*0.9)/14 + Math.random()*0.14); break;
+        default:        q.d = Math.random();
+      }
+      q.d = Math.min(0.98, Math.max(0, q.d));
+
+      if(first) continue;
+      // a gentle push apart before they regroup — stops the change feeling instant
+      const ang=Math.atan2(q.y-cy, q.x-cx);
+      const kick = style==='fall' ? 0 : 0.7+Math.random()*1.5;
+      q.vx += Math.cos(ang)*kick; q.vy += Math.sin(ang)*kick;
+      if(style==='fall') q.vy -= 1.4+Math.random()*2.2;
+      if(style==='rise') q.vy += 1.2+Math.random()*2;
+    }
+  }
+
+  function current(){
+    let best=0, bd=1e9;
+    scenes.forEach((s,i)=>{
+      const r=s.getBoundingClientRect();
+      const d=Math.abs((r.top+r.bottom)/2 - innerHeight/2);
+      if(d<bd){bd=d;best=i;}
+    });
+    return best;
+  }
+
+  const easeIO = t => t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
+
+  function frame(t){
+    ctx.clearRect(0,0,W,H);
+    const jitter=Math.min(4,Math.abs(vel)*0.03);
+    const m=(t-morphStart)/DUR;               // global morph clock, ~3.2s
+    for(let i=0;i<P.length;i++){
+      const q=P[i];
+      if(q.tx===undefined) continue;
+
+      // this particle's own share of the morph — starts late, eases in
+      const local = Math.min(1, Math.max(0, (m - q.d*SPREAD) / (1 - SPREAD*0.6)));
+      const pull  = q.k * easeIO(local);
+
+      if(local>0){ q.vx += (q.tx-q.x)*pull; q.vy += (q.ty-q.y)*pull; }
+      // while waiting its turn it just coasts, so nothing moves all at once
+      q.vx *= q.drag; q.vy *= q.drag;
+      q.x += q.vx; q.y += q.vy;
+
+      const bx=Math.sin(t/1500+q.ph)*1.5, by=Math.cos(t/1300+q.ph)*1.5;
+      const px=q.x+bx+(Math.random()-.5)*jitter, py=q.y+by+(Math.random()-.5)*jitter;
+      ctx.fillStyle = q.c || (q.up?'#16C784':'#EA3943');
+      ctx.globalAlpha=0.35+0.55*Math.min(1,local*1.4);
+      ctx.fillRect(px-q.w/2, py-q.h/2, q.w, q.h);
+      ctx.globalAlpha*=0.5;
+      ctx.fillRect(px-0.4, py-q.h/2-1.5, 0.8, q.h+3);
+    }
+    ctx.globalAlpha=1;
+    vel *= 0.92;
+    raf=requestAnimationFrame(frame);
+  }
+
+  function onScroll(){
+    vel = scrollY-lastY; lastY=scrollY;
+    const i=current();
+    if(i!==active){ active=i; assign(i); }
+    scenes.forEach((s,k)=>{
+      const r=s.getBoundingClientRect();
+      s.classList.toggle('lit', r.top < innerHeight*0.34 && r.bottom > innerHeight*0.66);
+    });
+  }
+
+  return {
+    init(){
+      // preload the portrait so the About scene can be built from its pixels
+      scenes.forEach(sec=>{
+        if(sec.dataset.shape==='image'){
+          const im=new Image();
+          im.onload=()=>{ sec._img=im; buildShapes(); if(active>=0) assign(active); };
+          im.onerror=()=>{};
+          im.src=sec.dataset.src;
+          sec._img=im;
+        }
+      });
+      fit();
+      addEventListener('resize',fit);
+      addEventListener('scroll',onScroll,{passive:true});
+      onScroll();
+      raf=requestAnimationFrame(frame);
+      if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{buildShapes();assign(active<0?0:active,true);});
+    }
+  };
+})();
+
+/* ---------- preloader → start ---------- */
+(function(){
+  const pre=document.getElementById('pre'), pct=document.getElementById('pct'), fill=document.querySelector('#bar i');
+  function go(){
+    document.body.classList.remove('locked');
+    if(RM){ document.body.classList.add('flat'); return; }
+    Stage.init();
+  }
+  if(RM){ document.body.classList.add('flat'); document.body.classList.remove('locked'); pre.remove(); return; }
+  let v=0;
+  const iv=setInterval(()=>{
+    v=Math.min(100,v+Math.random()*11+4);
+    pct.textContent=Math.floor(v);
+    fill.style.right=(100-v)+'%';
+    if(v>=100){
+      clearInterval(iv);
+      setTimeout(()=>{ pre.classList.add('gone'); go(); setTimeout(()=>pre.remove(),1100); },300);
+    }
+  },105);
+})();
+</script>
+</body>
+</html>
