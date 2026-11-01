@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "geometrySource": "hand-traced",
+    "geometryNote": "Simplified outline (US-1 / SW 80th St / SW 57th Ave / SW 136th St). Run `npm run fetch-osm` to replace it with the official OpenStreetMap village boundary (admin relation named Pinecrest)."
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Village of Pinecrest" },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-80.3055, 25.6948], [-80.2873, 25.6948], [-80.2873, 25.6435],
+          [-80.3404, 25.6435], [-80.3230, 25.6692], [-80.3055, 25.6948]
+        ]]
+      }
+    }
+  ]
+}

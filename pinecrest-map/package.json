@@ -1,0 +1,20 @@
+{
+  "name": "pinecrest-speed-map",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "8-second animated broadcast map: Pinecrest, FL speed limit change (35 -> 30 mph).",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "fetch-osm": "node tools/fetch-osm.mjs",
+    "export": "node tools/export.mjs",
+    "export:alpha": "node tools/export.mjs --alpha"
+  },
+  "dependencies": {
+    "maplibre-gl": "^5.16.0",
+    "motion": "^12.23.0"
+  },
+  "devDependencies": {
+    "puppeteer": "^24.0.0"
+  }
+}

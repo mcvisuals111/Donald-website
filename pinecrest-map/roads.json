@@ -1,0 +1,94 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "description": "Pinecrest, FL roads where the speed limit dropped from 35 to 30 mph. Each feature is drawn as an animated line, in the order given by properties.order.",
+    "geometrySource": "hand-traced",
+    "geometryNote": "First-pass hand trace on the Miami-Dade street grid. Run `npm run fetch-osm` to replace every line (and pinecrest-boundary.geojson) with exact OpenStreetMap geometry clipped at the cross streets listed under properties.osm.",
+    "howToAddARoad": "Copy a feature, give it a new id/order/name, list its OSM names and its from/to cross streets, then run `npm run fetch-osm`. The animation picks up any number of roads; config.roads.stagger sets the spacing."
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "ludlam",
+        "order": 1,
+        "name": "Ludlam Rd",
+        "sub": "SW 67th Ave",
+        "marker": { "t": "auto" },
+        "osm": {
+          "names": ["Southwest 67th Avenue", "SW 67th Avenue", "Ludlam Road"],
+          "axis": "lat",
+          "from": { "names": ["Southwest 88th Street", "North Kendall Drive", "Kendall Drive", "SW 88th Street"], "approx": 25.6875 },
+          "to": { "names": ["Southwest 136th Street", "Howard Drive", "SW 136th Street"], "approx": 25.6435 }
+        }
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-80.3036, 25.6875], [-80.3036, 25.6655], [-80.3036, 25.6435]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "palmetto",
+        "order": 2,
+        "name": "Palmetto Rd",
+        "sub": "SW 77th Ave",
+        "marker": { "t": "auto" },
+        "osm": {
+          "names": ["Southwest 77th Avenue", "SW 77th Avenue", "Palmetto Road"],
+          "axis": "lat",
+          "from": { "names": ["Southwest 104th Street", "SW 104th Street"], "approx": 25.6728 },
+          "to": { "names": ["Southwest 136th Street", "Howard Drive", "SW 136th Street"], "approx": 25.6435 }
+        }
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-80.3199, 25.6728], [-80.3199, 25.6582], [-80.3199, 25.6435]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "sw72",
+        "order": 3,
+        "name": "SW 72nd Ave",
+        "sub": "US-1 to SW 136th St",
+        "marker": { "t": "auto" },
+        "osm": {
+          "names": ["Southwest 72nd Avenue", "SW 72nd Avenue"],
+          "axis": "lat",
+          "from": { "names": ["South Dixie Highway"], "refs": ["US 1"], "approx": 25.6857 },
+          "to": { "names": ["Southwest 136th Street", "Howard Drive", "SW 136th Street"], "approx": 25.6435 }
+        }
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [[-80.3117, 25.6857], [-80.3117, 25.6646], [-80.3117, 25.6435]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "killian",
+        "order": 4,
+        "name": "Killian Dr",
+        "sub": "SW 112th / 111th St",
+        "marker": { "t": "auto" },
+        "osm": {
+          "names": ["Killian Drive", "Southwest 112th Street", "Southwest 111th Street", "SW 112th Street", "SW 111th Street"],
+          "axis": "lon",
+          "from": { "names": ["South Dixie Highway"], "refs": ["US 1"], "approx": -80.3255 },
+          "to": { "names": ["Southwest 57th Avenue", "Red Road", "SW 57th Avenue"], "approx": -80.2873 }
+        }
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [-80.3255, 25.6655], [-80.3150, 25.6655], [-80.3075, 25.6655],
+          [-80.3050, 25.6659], [-80.3025, 25.6664], [-80.2950, 25.6664], [-80.2873, 25.6664]
+        ]
+      }
+    }
+  ]
+}
