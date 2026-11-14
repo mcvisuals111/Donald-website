@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Parking Permit Audit</title>
+<style>
+@font-face{font-family:"GDisplay";src:url(fonts/InterDisplay-SemiBold.otf);font-weight:600}
+@font-face{font-family:"GText";src:url(fonts/Inter-Medium.otf);font-weight:500}
+@font-face{font-family:"GText";src:url(fonts/Inter-SemiBold.otf);font-weight:600}
+:root{
+  --bg:#050506;
+  --label:#A1A1A6;
+  --muted:#8E8E93;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg)}
+body{overflow:hidden}
+#stage{position:relative;width:1920px;height:1080px;overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 40%, #0C0C0E 0%, #050506 70%);
+  -webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+
+#glow{position:absolute;left:0;top:0;width:1400px;height:1400px;border-radius:50%;pointer-events:none}
+
+.card{position:absolute;overflow:hidden;contain:paint}
+.card .sheen{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0) 45%);pointer-events:none}
+.content{position:absolute;left:0;top:0;transform-origin:0 0;white-space:nowrap}
+.pill{width:36px;height:7px;border-radius:4px;transform-origin:0 50%;margin-bottom:26px}
+.num{font-family:"GDisplay";font-weight:600;font-size:120px;line-height:126px;height:126px;color:#F5F5F7;display:flex;font-feature-settings:"tnum" 0}
+/* odometer column: 126px layout box; the visible band is a soft-edged mask a little taller than it */
+.win{position:relative;height:126px}
+.mwrap{position:absolute;left:-45%;right:-45%;top:-12px;bottom:-20px;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 12px,#000 calc(100% - 18px),transparent 100%);
+          mask-image:linear-gradient(to bottom,transparent 0,#000 12px,#000 calc(100% - 18px),transparent 100%)}
+.strip{position:absolute;left:0;right:0;top:0;text-align:center}
+.strip div{height:170px;line-height:170px}
+.lab{margin-top:16px;height:38px;clip-path:inset(-4px -10px -10px -10px);font-family:"GText";font-weight:500;font-size:30px;line-height:38px;color:var(--label);letter-spacing:-.005em}
+.lab span{display:inline-block}
+
+.word{position:absolute;left:0;top:0;transform-origin:0 0;white-space:nowrap;
+  font-family:"GDisplay";font-weight:600;font-size:88px;line-height:95px;color:#F5F5F7;letter-spacing:-.018em;
+  clip-path:inset(-6px -12px -26px -12px)}
+.word span{display:inline-block}
+#eyebrow{position:absolute;left:0;top:0;transform-origin:0 0;white-space:nowrap;
+  font-family:"GText";font-weight:600;font-size:22px;line-height:28px;letter-spacing:.16em;color:var(--muted);
+  clip-path:inset(-4px -20px -8px -20px)}
+#eyebrow span{display:inline-block}
+#source{position:absolute;left:120px;top:942px;white-space:nowrap;font-family:"GText";font-weight:500;font-size:24px;line-height:30px;color:#6E6E73;
+  clip-path:inset(-4px -20px -8px -20px)}
+#source span{display:inline-block}
+#source b{font-weight:600;color:#8E8E93}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="glow"></div>
+  <div id="cards"></div>
+  <div id="eyebrow"><span>MIAMI-DADE COUNTY · COUNTYWIDE AUDIT</span></div>
+  <div id="words"></div>
+  <div id="source"><span><b>Source:</b> Miami-Dade County Tax Collector, October 20, 2026.</span></div>
+</div>
+
+<script>
+/* ================================================================
+   DATA — every number on screen comes from here, nowhere else.
+   Source: Miami-Dade County Tax Collector, October 20, 2026.
+   ================================================================ */
+const STATS = [
+  { value: "137,016", label: "Applications reviewed",                     accent: [10,132,255]  },
+  { value: "8,517",   label: "Failed final audit",                        accent: [255,214,10]  },
+  { value: "6,169",   label: "Permits canceled",                          accent: [255,159,10]  },
+  { value: "670",     label: "Suspected fraud cases referred to sheriff", accent: [255,69,58]   },
+];
+const TITLE = ["Disabled", "Parking", "Permit", "Investigation"];
+const TITLE_LINES = [[0,1,2,3]];            // one line, so the move to the header is a clean scale
+const DURATION = 21;                        // seconds
+
+/* ---------------- layout (1920 × 1080) ---------------- */
+const MX = 120, GAP = 24;
+const BODY = { x:120, y:226, w:1680, h:680 };
+const COLW = (BODY.w - GAP)/2, ROWH = (BODY.h - GAP)/2;
+const R = {
+  dot0:  [960,540,0,0],
+  dot:   [948,528,24,24],
+  title: [220,380,1480,320],
+  hero:  [BODY.x, BODY.y, BODY.w, BODY.h],
+  colL:  [BODY.x, BODY.y, COLW, BODY.h],
+  colR:  [BODY.x+COLW+GAP, BODY.y, COLW, BODY.h],
+  TL:    [BODY.x, BODY.y, COLW, ROWH],
+  TR:    [BODY.x+COLW+GAP, BODY.y, COLW, ROWH],
+};
+const SCALE = { hero:2.1, col:1.35, quad:1 };
+
+/* ---------------- easing ---------------- */
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+function spring(z=0.82, w=10){                 // damped spring, settles by x=1
+  const wd=w*Math.sqrt(1-z*z);
+  const raw=x=>1-Math.exp(-z*w*x)*(Math.cos(wd*x)+(z*w/wd)*Math.sin(wd*x));
+  const end=raw(1);
+  return x=> x<=0?0 : x>=1?1 : raw(x)/end;
+}
+function bezier(x1,y1,x2,y2){
+  const cx=3*x1, bx=3*(x2-x1)-cx, ax=1-cx-bx, cy=3*y1, by=3*(y2-y1)-cy, ay=1-cy-by;
+  const X=s=>((ax*s+bx)*s+cx)*s, Y=s=>((ay*s+by)*s+cy)*s, dX=s=>(3*ax*s+2*bx)*s+cx;
+  return x=>{
+    if(x<=0) return 0; if(x>=1) return 1;
+    let s=x; for(let i=0;i<8;i++){ const e=X(s)-x, d=dX(s); if(Math.abs(e)<1e-7||Math.abs(d)<1e-6) break; s-=e/d; }
+    let lo=0,hi=1; if(Math.abs(X(s)-x)>1e-5){ s=x; for(let i=0;i<40;i++){ if(X(s)<x) lo=s; else hi=s; s=(lo+hi)/2; } }
+    return Y(s);
+  };
+}
+const MORPH  = spring(0.82, 10);
+const SOFT   = spring(0.9, 9);
+const OUT    = bezier(0.16, 1, 0.3, 1);          // reveals
+const ROLL   = bezier(0.2, 0.75, 0.15, 1);       // digit rise
+const CELL = 170, CELL_Y0 = 63 + 12;   // strip pitch; window centre inside .mwrap
+const ROLL_T = { delay:0.08, stagger:0.055, dur:1.0, commaDur:1.0 };
+const INOUT  = bezier(0.65, 0, 0.35, 1);
+
+const lerp=(a,b,p)=> Array.isArray(a) ? a.map((v,i)=>v+(b[i]-v)*p) : a+(b-a)*p;
+/* keys: [[t, value], [t, value, ease], ...]  — each key eases from the previous one */
+function track(t, keys){
+  if(t<=keys[0][0]) return keys[0][1];
+  for(let i=1;i<keys.length;i++){
+    const [t1,v1,e]=keys[i], [t0,v0]=keys[i-1];
+    if(t<t1) return lerp(v0, v1, (e||(x=>x))((t-t0)/(t1-t0)));
+  }
+  return keys[keys.length-1][1];
+}
+const seg=(t,t0,dur,ease)=>ease(clamp((t-t0)/dur));
+
+/* ---------------- timeline (seconds) ---------------- */
+const T = {
+  dotIn:0.15, toTitle:0.62, titleText:1.25,
+  toHeader:3.55, statA:4.55,
+  split1:7.6, split2:10.8, split3:14.0,
+  settle:16.9,
+  morphDur:1.3,
+};
+const STAT_START = [T.statA, T.split1+0.32, T.split2+0.32, T.split3+0.32];
+
+/* ---------------- build DOM ---------------- */
+const $=s=>document.querySelector(s);
+const cardsEl=$('#cards'), wordsEl=$('#words');
+const cards = STATS.map((s,i)=>{
+  const el=document.createElement('div'); el.className='card';
+  el.innerHTML=`<div class="sheen"></div><div class="content"><div class="pill"></div><div class="num"></div><div class="lab"><span></span></div></div>`;
+  cardsEl.appendChild(el);
+  const pill=el.querySelector('.pill'); pill.style.background=`rgb(${s.accent})`;
+  el.querySelector('.lab span').textContent=s.label;
+  const num=el.querySelector('.num');
+  const cols=[...s.value].map(ch=>{
+    const win=document.createElement('div'); win.className='win';
+    const mwrap=document.createElement('div'); mwrap.className='mwrap';
+    const strip=document.createElement('div'); strip.className='strip';
+    // each character only ever shows its real value: it rises into place from below the mask
+    const cells = ['\u00A0', ch];
+    strip.innerHTML=cells.map(c=>`<div>${c}</div>`).join('');
+    mwrap.appendChild(strip); win.appendChild(mwrap); num.appendChild(win);
+    return { ch, win, strip, target: cells.length-1, cells };
+  });
+  return { el, content:el.querySelector('.content'), pill, lab:el.querySelector('.lab span'), cols, stat:s };
+});
+const words = TITLE.map(w=>{
+  const el=document.createElement('div'); el.className='word'; el.innerHTML=`<span>${w}</span>`;
+  wordsEl.appendChild(el); return { el, inner: el.firstChild };
+});
+const eyebrow=$('#eyebrow'), eyeInner=eyebrow.firstChild, source=$('#source'), srcInner=source.firstChild, glow=$('#glow');
+
+/* svg vertical motion-blur filters, one per odometer column */
+const svgNS='http://www.w3.org/2000/svg';
+const svg=document.createElementNS(svgNS,'svg'); svg.setAttribute('width',0); svg.setAttribute('height',0); svg.style.position='absolute';
+const defs=document.createElementNS(svgNS,'defs'); svg.appendChild(defs); document.body.appendChild(svg);
+let fid=0;
+cards.forEach(c=>c.cols.forEach(col=>{
+  const f=document.createElementNS(svgNS,'filter'); f.id='mb'+(fid++);
+  f.setAttribute('x','-20%'); f.setAttribute('y','-50%'); f.setAttribute('width','140%'); f.setAttribute('height','200%');
+  const g=document.createElementNS(svgNS,'feGaussianBlur'); g.setAttribute('stdDeviation','0 0'); f.appendChild(g); defs.appendChild(f);
+  col.filter=f.id; col.blur=g; col.lastBlur=-1;
+}));
+
+/* ---------------- measurement (after fonts load) ---------------- */
+let L = null;
+function measure(){
+  // odometer column widths = the final glyph's natural width
+  cards.forEach(c=>{
+    c.cols.forEach(col=>{
+      const probe=document.createElement('span');
+      probe.style.cssText='position:absolute;visibility:hidden;font-family:GDisplay;font-weight:600;font-size:120px;white-space:pre';
+      probe.textContent=col.ch; document.body.appendChild(probe);
+      col.w=probe.getBoundingClientRect().width - 120*0.018; probe.remove();
+      col.win.style.width=col.w+'px';
+    });
+    c.h0=c.content.offsetHeight;
+    c.w0=c.content.scrollWidth;
+  });
+  // title word widths at 88px
+  const sp=document.createElement('span');
+  sp.style.cssText='position:absolute;visibility:hidden;font-family:GDisplay;font-weight:600;font-size:88px;letter-spacing:-.018em;white-space:pre';
+  document.body.appendChild(sp);
+  sp.textContent=' '; const space=sp.getBoundingClientRect().width;
+  const ww=TITLE.map(w=>{ sp.textContent=w; return sp.getBoundingClientRect().width; });
+  sp.remove();
+  const eyeW=eyeInner.getBoundingClientRect().width;
+
+  // layout A — centered inside the intro card
+  const tc=R.title, A=[], sA=72/88;
+  const eyeA={ x: tc[0]+tc[2]/2-eyeW/2, y: tc[1]+92, s:1 };
+  TITLE_LINES.forEach((ln,li)=>{
+    const tw=(ln.reduce((a,i)=>a+ww[i],0)+space*(ln.length-1))*sA;
+    let x=tc[0]+tc[2]/2-tw/2; const y=tc[1]+136+li*95*sA;
+    ln.forEach(i=>{ A[i]={x,y,s:sA}; x+=(ww[i]+space)*sA; });
+  });
+  // layout B — one line, top-left header
+  const sB=0.6, B=[]; let x=MX;
+  TITLE.forEach((w,i)=>{ B[i]={x, y:110, s:sB}; x+=(ww[i]+space)*sB; });
+  const eyeB={ x:MX, y:70, s:0.95 };
+  L={A,B,eyeA,eyeB,ww,space};
+}
+
+/* ---------------- per-frame state ---------------- */
+function rectA(t){
+  return track(t,[
+    [T.dotIn, R.dot0],
+    [T.dotIn+0.45, R.dot, spring(0.6,9)],
+    [T.toTitle, R.dot],
+    [T.toTitle+1.3, R.title, SOFT],
+    [T.toHeader, R.title],
+    [T.toHeader+T.morphDur, R.hero, MORPH],
+    [T.split1, R.hero],
+    [T.split1+T.morphDur, R.colL, MORPH],
+    [T.split2, R.colL],
+    [T.split2+T.morphDur, R.TL, MORPH],
+  ]);
+}
+function rectB(t){
+  if(t<T.split1) return [0,0,0,0];
+  if(t<T.split3){                              // born from A's right edge (split 1)
+    const a=rectA(Math.min(t, T.split2));       // A's column is fixed after split 1
+    const x=a[0]+a[2]+GAP; return [x, BODY.y, BODY.x+BODY.w-x, BODY.h];
+  }
+  return track(t,[[T.split3,R.colR],[T.split3+T.morphDur,R.TR,MORPH]]);
+}
+function rectC(t){ if(t<T.split2) return [0,0,0,0]; const a=rectA(t); const y=a[1]+a[3]+GAP; return [a[0], y, a[2], BODY.y+BODY.h-y]; }
+function rectD(t){ if(t<T.split3) return [0,0,0,0]; const b=rectB(t); const y=b[1]+b[3]+GAP; return [b[0], y, b[2], BODY.y+BODY.h-y]; }
+const RECTS=[rectA,rectB,rectC,rectD];
+
+function scaleOf(i,t){
+  if(i===0) return track(t,[[T.toHeader,SCALE.hero],[T.split1,SCALE.hero],[T.split1+T.morphDur,SCALE.col,MORPH],[T.split2,SCALE.col],[T.split2+T.morphDur,SCALE.quad,MORPH]]);
+  if(i===1) return track(t,[[T.split3,SCALE.col],[T.split3+T.morphDur,SCALE.quad,MORPH]]);
+  return SCALE.quad;
+}
+function radiusOf(i,t){
+  if(i===0) return track(t,[[T.dotIn,12],[T.toTitle,12],[T.toTitle+1.3,44,SOFT],[T.toHeader,44],[T.toHeader+T.morphDur,40,MORPH],[T.split1,40],[T.split1+T.morphDur,36,MORPH],[T.split2,36],[T.split2+T.morphDur,32,MORPH]]);
+  if(i===1) return track(t,[[T.split3,36],[T.split3+T.morphDur,32,MORPH]]);
+  return 32;
+}
+const CARD_BG=[28,28,30], DOT=[245,245,247];
+/* which card holds focus: 0..3, or -1 for intro / final summary */
+const FOCUS=[[0,-1],[T.toHeader+0.6,0],[T.split1,1],[T.split2,2],[T.split3,3],[T.settle,-1]];
+function focusAmt(i,t){
+  // 1 when card i is focused, eased between focus changes
+  let v=0;
+  for(let k=0;k<FOCUS.length;k++){
+    const [ts,who]=FOCUS[k], p=seg(t,ts,0.9,INOUT);
+    v = who===i ? v+(1-v)*p : v*(1-p);
+  }
+  return v;
+}
+
+function rollPos(col, t0, dur, t){ return col.target*ROLL(clamp((t-t0)/dur)); }
+
+function render(t){
+  /* ----- glow follows the focused card ----- */
+  const centers=RECTS.map(f=>{ const r=f(t); return [r[0]+r[2]/2, r[1]+r[3]/2]; });
+  let gc=[960,540], col=[120,120,140], ga=0.10, gs=1;
+  const a0=rectA(t);
+  gc=[a0[0]+a0[2]/2, a0[1]+a0[3]/2];
+  gs=track(t,[[T.dotIn,0.02],[T.toTitle+1.3,1,SOFT]]);
+  const fw=STATS.map((_,i)=>focusAmt(i,t)), fsum=fw.reduce((a,b)=>a+b,0);
+  if(fsum>0.0001){
+    let cx=0,cy=0,cr=0,cg=0,cb=0;
+    fw.forEach((w,i)=>{ cx+=centers[i][0]*w; cy+=centers[i][1]*w; const c=STATS[i].accent; cr+=c[0]*w; cg+=c[1]*w; cb+=c[2]*w; });
+    const m=Math.min(1,fsum);
+    gc=lerp(gc,[cx/fsum,cy/fsum],m); col=lerp(col,[cr/fsum,cg/fsum,cb/fsum],m); ga=lerp(ga,0.17,m);
+  }
+  const endP=seg(t,T.settle,1.4,INOUT);
+  gc=lerp(gc,[BODY.x+BODY.w/2, BODY.y+BODY.h/2],endP);
+  gs*=lerp(1,1.25,endP);
+  const gsize=1400*gs;
+  glow.style.width=glow.style.height=gsize+'px';
+  glow.style.transform=`translate(${gc[0]-gsize/2}px,${gc[1]-gsize/2}px)`;
+  glow.style.background=`radial-gradient(closest-side, rgba(${col.map(Math.round)},${ga}) 0%, rgba(${col.map(Math.round)},${ga*0.45}) 38%, rgba(${col.map(Math.round)},0) 100%)`;
+
+  /* ----- cards ----- */
+  cards.forEach((c,i)=>{
+    const r=RECTS[i](t);
+    const w=Math.max(0,r[2]), h=Math.max(0,r[3]);
+    const vis = w>0.5 && h>0.5;
+    c.el.style.display = vis?'block':'none';
+    if(!vis) return;
+    const rad=Math.min(radiusOf(i,t), w/2, h/2);
+    c.el.style.left=r[0]+'px'; c.el.style.top=r[1]+'px';
+    c.el.style.width=w+'px'; c.el.style.height=h+'px';
+    c.el.style.borderRadius=rad+'px';
+    const bg = i===0 ? lerp(DOT,CARD_BG,seg(t,T.toTitle,0.42,INOUT)) : CARD_BG;
+    const f=focusAmt(i,t), ac=STATS[i].accent;
+    const ring = lerp([255,255,255,0.075],[...ac,0.42],f);
+    c.el.style.background=`rgb(${bg.map(Math.round)})`;
+    c.el.style.boxShadow=`inset 0 0 0 1.5px rgba(${ring.slice(0,3).map(Math.round)},${ring[3].toFixed(3)}), 0 30px 80px rgba(0,0,0,.45)`;
+
+    // content: left-anchored, vertically centred, scaled
+    const s=scaleOf(i,t);
+    const pad=56+(s-1)*36;
+    const top=(h - c.h0*s)/2;
+    c.content.style.transform=`translate(${pad}px,${top}px) scale(${s})`;
+
+    const st=STAT_START[i];
+    c.pill.style.transform=`scaleX(${seg(t,st,0.8,OUT)})`;
+    c.cols.forEach((col,j)=>{
+      const t0=st+ROLL_T.delay+j*ROLL_T.stagger, dur=col.ch===','?ROLL_T.commaDur:ROLL_T.dur;
+      const p=rollPos(col,t0,dur,t), pPrev=rollPos(col,t0,dur,t-1/60);
+      col.pos=p;   // cell index currently centred in the window
+      col.strip.style.transform=`translateY(${CELL_Y0 - p*CELL - CELL/2}px)`;
+      const blur=Math.min(4, Math.abs(p-pPrev)*CELL*0.2*s);
+      const b=blur<0.35?0:Math.round(blur*10)/10;
+      if(b!==col.lastBlur){
+        col.lastBlur=b;
+        col.blur.setAttribute('stdDeviation',`0 ${b}`);
+        col.strip.style.filter = b? `url(#${col.filter})` : 'none';
+      }
+    });
+    const lp=seg(t,st+0.38,1.0,OUT);
+    c.lab.style.transform=`translateY(${(1-lp)*130}%)`;
+  });
+
+  /* ----- title words: reveal in the card, then magic-move to the header ----- */
+  if(L){
+    words.forEach((wd,i)=>{
+      const line=TITLE_LINES.findIndex(l=>l.includes(i));
+      const rv=seg(t, T.titleText+0.1+line*0.12+(i%2)*0.05, 1.0, OUT);
+      wd.inner.style.transform=`translateY(${(1-rv)*135}%)`;
+      const p=seg(t, T.toHeader, T.morphDur, MORPH);   // one shared clock: words never collide
+      const a=L.A[i], b=L.B[i];
+      wd.el.style.transform=`translate(${lerp(a.x,b.x,p)}px,${lerp(a.y,b.y,p)}px) scale(${lerp(a.s,b.s,p)})`;
+    });
+    const erv=seg(t,T.titleText,1.0,OUT);
+    eyeInner.style.transform=`translateY(${(1-erv)*140}%)`;
+    const ep=seg(t,T.toHeader,T.morphDur,MORPH);
+    eyebrow.style.transform=`translate(${lerp(L.eyeA.x,L.eyeB.x,ep)}px,${lerp(L.eyeA.y,L.eyeB.y,ep)}px) scale(${lerp(L.eyeA.s,L.eyeB.s,ep)})`;
+  }
+  const sp=seg(t,T.toHeader+0.9,1.0,OUT);
+  srcInner.style.transform=`translateY(${(1-sp)*140}%)`;
+}
+
+/* ---------------- boot ---------------- */
+window.ready=(async()=>{
+  await Promise.all([
+    document.fonts.load('600 120px GDisplay'), document.fonts.load('500 30px GText'), document.fonts.load('600 22px GText')
+  ]);
+  await document.fonts.ready;
+  measure();
+  render(0);
+  return true;
+})();
+window.render=render;
+window.__data={STATS,cards,RECTS,L:()=>L,DURATION,T,ROLL_T};
+
+// live preview when opened directly (?t=seconds freezes a frame)
+const q=new URLSearchParams(location.search);
+if(!q.has('capture')){
+  window.ready.then(()=>{
+    if(q.has('t')){ render(+q.get('t')); return; }
+    const t0=performance.now();
+    const loop=now=>{ render(((now-t0)/1000)%(DURATION+1)); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  });
+}
+</script>
+</body>
+</html>
