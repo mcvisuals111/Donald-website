@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Parking Audit Drive</title>
+<style>
+@font-face{font-family:"GDisplay";src:url(fonts/InterDisplay-SemiBold.otf);font-weight:600}
+@font-face{font-family:"GText";src:url(fonts/Inter-Medium.otf);font-weight:500}
+@font-face{font-family:"GText";src:url(fonts/Inter-SemiBold.otf);font-weight:600}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#000}
+body{overflow:hidden}
+#stage{position:relative;width:1920px;height:1080px;overflow:hidden;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+#scene{position:absolute;left:0;top:0;width:1920px;height:1080px}
+#cockpit{position:absolute;left:0;top:0;width:1920px;height:1080px;pointer-events:none}
+
+/* ---------- HUD glass cards ---------- */
+.card{position:absolute;overflow:hidden;
+  -webkit-backdrop-filter:blur(18px) saturate(1.35);backdrop-filter:blur(18px) saturate(1.35)}
+.card .sheen{position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,0) 50%);pointer-events:none}
+.content{position:absolute;left:0;top:0;transform-origin:0 0}
+.pill{width:30px;height:6px;border-radius:3px;transform-origin:0 50%;margin-bottom:16px}
+.num{font-family:"GDisplay";font-weight:600;font-size:80px;line-height:86px;height:86px;color:#F7FAFF;display:flex;white-space:nowrap;
+  text-shadow:0 0 18px rgba(170,225,255,.18)}
+.win{position:relative;height:86px}
+.mwrap{position:absolute;left:-45%;right:-45%;top:-8px;bottom:-14px;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 8px,#000 calc(100% - 12px),transparent 100%);
+          mask-image:linear-gradient(to bottom,transparent 0,#000 8px,#000 calc(100% - 12px),transparent 100%)}
+.strip{position:absolute;left:0;right:0;top:0;text-align:center}
+.strip div{height:116px;line-height:116px}
+.lab{margin-top:10px;width:318px;clip-path:inset(-4px -10px -10px -10px);font-family:"GText";font-weight:500;font-size:22px;line-height:28px;color:#C9D3E3}
+.lab span{display:block}
+
+.word{position:absolute;left:0;top:0;transform-origin:0 0;white-space:nowrap;
+  font-family:"GDisplay";font-weight:600;font-size:88px;line-height:95px;color:#FFFFFF;letter-spacing:-.018em;
+  text-shadow:0 2px 24px rgba(0,0,0,.35);clip-path:inset(-6px -12px -26px -12px)}
+.word span{display:inline-block}
+#eyebrow{position:absolute;left:0;top:0;transform-origin:0 0;white-space:nowrap;
+  font-family:"GText";font-weight:600;font-size:22px;line-height:28px;letter-spacing:.16em;color:#B7C2D6;
+  clip-path:inset(-4px -20px -8px -20px)}
+#eyebrow span{display:inline-block}
+#source{position:absolute;right:204px;top:118px;white-space:nowrap;font-family:"GText";font-weight:500;font-size:20px;line-height:26px;color:#9AA4B8;text-align:right;
+  clip-path:inset(-4px -20px -8px -20px)}
+#source span{display:inline-block}
+#source b{font-weight:600;color:#C3CBDA}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="scene" width="3840" height="2160"></canvas>
+  <div id="cards"></div>
+  <div id="eyebrow"><span>MIAMI-DADE COUNTY · COUNTYWIDE AUDIT</span></div>
+  <div id="words"></div>
+  <div id="source"><span><b>Source:</b> Miami-Dade County Tax Collector, October 20, 2026.</span></div>
+  <canvas id="cockpit" width="3840" height="2160"></canvas>
+</div>
+
+<script>
+/* ================================================================
+   DATA — every number on screen comes from here, nowhere else.
+   Source: Miami-Dade County Tax Collector, October 20, 2026.
+   ================================================================ */
+const STATS = [
+  { value: "137,016", label: "Applications reviewed",                     accent: [10,132,255]  },
+  { value: "8,517",   label: "Failed final audit",                        accent: [255,214,10]  },
+  { value: "6,169",   label: "Permits canceled",                          accent: [255,159,10]  },
+  { value: "670",     label: "Suspected fraud cases referred to sheriff", accent: [255,69,58]   },
+];
+const TITLE = ["Disabled", "Parking", "Permit", "Investigation"];
+const DURATION = 25;
+
+/* ---------------- easing / tracks ---------------- */
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+function spring(z=0.82, w=10){
+  const wd=w*Math.sqrt(1-z*z);
+  const raw=x=>1-Math.exp(-z*w*x)*(Math.cos(wd*x)+(z*w/wd)*Math.sin(wd*x));
+  const end=raw(1);
+  return x=> x<=0?0 : x>=1?1 : raw(x)/end;
+}
+function bezier(x1,y1,x2,y2){
+  const cx=3*x1, bx=3*(x2-x1)-cx, ax=1-cx-bx, cy=3*y1, by=3*(y2-y1)-cy, ay=1-cy-by;
+  const X=s=>((ax*s+bx)*s+cx)*s, Y=s=>((ay*s+by)*s+cy)*s, dX=s=>(3*ax*s+2*bx)*s+cx;
+  return x=>{
+    if(x<=0) return 0; if(x>=1) return 1;
+    let s=x; for(let i=0;i<8;i++){ const e=X(s)-x, d=dX(s); if(Math.abs(e)<1e-7||Math.abs(d)<1e-6) break; s-=e/d; }
+    let lo=0,hi=1; if(Math.abs(X(s)-x)>1e-5){ s=x; for(let i=0;i<40;i++){ if(X(s)<x) lo=s; else hi=s; s=(lo+hi)/2; } }
+    return Y(s);
+  };
+}
+const MORPH=spring(0.82,10), SOFT=spring(0.9,9), POP=spring(0.62,11);
+const OUT=bezier(0.16,1,0.3,1), INOUT=bezier(0.65,0,0.35,1), RISE=bezier(0.2,0.75,0.15,1);
+const lerp=(a,b,p)=> Array.isArray(a) ? a.map((v,i)=>v+(b[i]-v)*p) : a+(b-a)*p;
+function track(t, keys){
+  if(t<=keys[0][0]) return keys[0][1];
+  for(let i=1;i<keys.length;i++){
+    const [t1,v1,e]=keys[i], [t0,v0]=keys[i-1];
+    if(t<t1) return lerp(v0, v1, (e||(x=>x))((t-t0)/(t1-t0)));
+  }
+  return keys[keys.length-1][1];
+}
+const seg=(t,t0,dur,ease)=>ease(clamp((t-t0)/dur));
+function rng(seed){ return ()=>{ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const mix=(a,b,p)=>a.map((v,i)=>v+(b[i]-v)*p);
+const rgb=(c,a=1)=>`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+
+/* ================================================================
+   THE DRIVE — a dusk boulevard, drawn fresh every frame
+   ================================================================ */
+const W=1920, H=1080, F=950, CAMH=1.25, SPEED=19;      // px focal, m camera height, m/s (~43 mph)
+const sc=document.getElementById('scene').getContext('2d');
+const ck=document.getElementById('cockpit').getContext('2d');
+sc.scale(2,2); ck.scale(2,2);
+
+const HAZE=[214,120,118], SKY_LOW=[240,138,93];
+let skyline=[], stars=[];
+(function buildStatic(){
+  const r=rng(7);
+  // two skyline layers, spanning wider than the frame so the curve can pan them
+  for(const layer of [0,1]){
+    let x=-300;
+    while(x<W+300){
+      const w=(layer?26:20)+r()*(layer?58:40);
+      const tall = r()<0.18;
+      const h=(layer? 22+r()*70 : 30+r()*60) + (tall? 60+r()*90 : 0) + (Math.abs(x-1180)<260? 40*r():0);
+      const lit=[];
+      if(layer) for(let yy=8; yy<h-6; yy+=9) for(let xx=5; xx<w-5; xx+=8) if(r()<0.22) lit.push([xx,yy,0.35+r()*0.5]);
+      skyline.push({layer,x,w,h,ant: tall&&r()<0.6 ? 10+r()*24 : 0, lit});
+      x+=w+(layer? r()*10 : r()*4);
+    }
+  }
+  for(let i=0;i<90;i++) stars.push([r()*W, r()*230, 0.4+r()*0.9, r()*6.28]);
+})();
+
+function view(t){
+  const bob = 1.1*Math.sin(t*2*Math.PI*1.25) + 0.5*Math.sin(t*2*Math.PI*3.05+1.3);
+  const sway = 7*Math.sin(t*0.37+0.4);
+  const curve = 0.00022*Math.sin(t*0.16+0.9);
+  return { hor:432+bob, vpx:960+sway, curve };
+}
+const fog = z => Math.pow(clamp((z-6)/240),0.75)*0.88;
+function P(v,X,Y,z){ const dx=v.curve*z*z; return [v.vpx+F*(X-dx)/z, v.hor+F*(CAMH-Y)/z]; }
+
+function drawSky(c,v,t){
+  const g=c.createLinearGradient(0,0,0,v.hor+2);
+  g.addColorStop(0,'#060A1E'); g.addColorStop(0.32,'#16163E'); g.addColorStop(0.6,'#43296A');
+  g.addColorStop(0.82,'#A64B79'); g.addColorStop(1,'#EE8A5E');
+  c.fillStyle=g; c.fillRect(0,0,W,v.hor+2);
+  for(const [x,y,s,ph] of stars){ c.fillStyle=`rgba(255,255,255,${(0.25+0.2*Math.sin(t*1.7+ph))*(1-y/260)})`; c.fillRect(x,y,s,s); }
+  // sun, low and soft, partly behind the skyline
+  const far=v.curve*260*F;
+  const sx=v.vpx+250-far, sy=v.hor-34;
+  let rg=c.createRadialGradient(sx,sy,0,sx,sy,520);
+  rg.addColorStop(0,'rgba(255,190,120,.55)'); rg.addColorStop(0.25,'rgba(255,140,100,.22)'); rg.addColorStop(1,'rgba(255,120,110,0)');
+  c.fillStyle=rg; c.fillRect(0,0,W,v.hor+2);
+  rg=c.createRadialGradient(sx,sy,0,sx,sy,58);
+  rg.addColorStop(0,'#FFF1D6'); rg.addColorStop(0.75,'#FFD09A'); rg.addColorStop(1,'rgba(255,190,130,0)');
+  c.fillStyle=rg; c.beginPath(); c.arc(sx,sy,58,0,Math.PI*2); c.fill();
+}
+function drawSkyline(c,v,t){
+  const far=v.curve*260*F;
+  for(const b of skyline){
+    const x=b.x - far + (v.vpx-960)*(b.layer?0.92:0.97) - t*(b.layer?1.2:0.6);
+    if(x>W||x+b.w<0) continue;
+    c.fillStyle = b.layer ? '#2A1C45' : '#4A3166';
+    c.fillRect(x, v.hor-b.h, b.w, b.h+2);
+    if(b.ant){ c.fillRect(x+b.w/2-1, v.hor-b.h-b.ant, 2, b.ant); c.fillStyle='rgba(255,90,80,.8)'; c.fillRect(x+b.w/2-1.5, v.hor-b.h-b.ant-2, 3, 3); }
+    for(const [xx,yy,a] of b.lit){ c.fillStyle=`rgba(255,205,150,${a*0.55})`; c.fillRect(x+xx, v.hor-b.h+yy, 3, 4); }
+  }
+  // horizon haze sits over the skyline's base
+  const g=c.createLinearGradient(0,v.hor-60,0,v.hor+30);
+  g.addColorStop(0,'rgba(238,138,94,0)'); g.addColorStop(0.7,'rgba(226,128,100,.55)'); g.addColorStop(1,'rgba(200,110,110,.85)');
+  c.fillStyle=g; c.fillRect(0,v.hor-60,W,90);
+}
+function drawGround(c,v){
+  const g=c.createLinearGradient(0,v.hor,0,H);
+  g.addColorStop(0,'#8A4E6E'); g.addColorStop(0.08,'#3C2A47'); g.addColorStop(0.35,'#1A1824'); g.addColorStop(1,'#0E0F15');
+  c.fillStyle=g; c.fillRect(0,v.hor,W,H-v.hor);
+}
+function quad(c,a,b,d,e){ c.beginPath(); c.moveTo(a[0],a[1]); c.lineTo(b[0],b[1]); c.lineTo(d[0],d[1]); c.lineTo(e[0],e[1]); c.closePath(); c.fill(); }
+function drawRoad(c,v,t){
+  const zs=[]; for(let z=260; z>2.2; z/=1.045) zs.push(z); zs.push(2.2);
+  const near=[30,29,38], far=HAZE;
+  for(let i=0;i<zs.length-1;i++){
+    const z0=zs[i], z1=zs[i+1], f=fog((z0+z1)/2);
+    // sidewalk strips, then the asphalt
+    c.fillStyle=rgb(mix([46,40,52],far,f));
+    quad(c,P(v,-8.6,0,z0),P(v,-6.4,0,z0),P(v,-6.4,0,z1),P(v,-8.6,0,z1));
+    quad(c,P(v,6.4,0,z0),P(v,8.6,0,z0),P(v,8.6,0,z1),P(v,6.4,0,z1));
+    c.fillStyle=rgb(mix(near,far,f));
+    quad(c,P(v,-6.4,0,z0),P(v,6.4,0,z0),P(v,6.4,0,z1),P(v,-6.4,0,z1));
+  }
+  // painted lines
+  const line=(X,w,col,z0,z1)=>{
+    z0=Math.min(z0,260); z1=Math.max(z1,2.2); if(z0<=z1) return;
+    const steps=Math.max(1,Math.ceil(Math.log(z0/z1)/Math.log(1.08)));
+    for(let k=0;k<steps;k++){
+      const za=z0*Math.pow(z1/z0,k/steps), zb=z0*Math.pow(z1/z0,(k+1)/steps), f=fog((za+zb)/2);
+      c.fillStyle=rgb(mix(col,far,f), 1-f*0.6);
+      quad(c,P(v,X-w,0,za),P(v,X+w,0,za),P(v,X+w,0,zb),P(v,X-w,0,zb));
+    }
+  };
+  line(-5.6,0.08,[230,190,70],260,2.2);   // yellow left edge
+  line(5.6,0.08,[225,225,230],260,2.2);   // white right edge
+  const travelled=SPEED*t;
+  for(const X of [-1.85,1.85]){
+    const first=Math.floor((travelled+2.2)/12)*12;
+    for(let s=first; s-travelled<262; s+=12){ const z1=s-travelled, z0=z1+3; line(X,0.065,[235,235,240],z0,z1); }
+  }
+  // our headlights on the asphalt ahead
+  c.save(); c.globalCompositeOperation='lighter';
+  for(const hx of [-0.75,0.75]){
+    const [x0,y0]=P(v,hx,0,9), rr=260;
+    const hg=c.createRadialGradient(x0,y0,0,x0,y0,rr);
+    hg.addColorStop(0,'rgba(255,236,210,.10)'); hg.addColorStop(1,'rgba(255,236,210,0)');
+    c.setTransform(2,0,0,2*0.45,0,y0*2*(1-0.45)); c.fillStyle=hg; c.fillRect(x0-rr,y0-rr,2*rr,2*rr);
+  }
+  c.restore();
+  // sunset reflection streak on the asphalt
+  const sx=v.vpx+250-v.curve*260*F;
+  c.save(); c.globalCompositeOperation='lighter';
+  const rg=c.createRadialGradient(sx,v.hor+18,0,sx,v.hor+18,240);
+  rg.addColorStop(0,'rgba(255,160,110,.22)'); rg.addColorStop(1,'rgba(255,160,110,0)');
+  c.setTransform(2,0,0,2*0.35,0,(v.hor+18)*2*(1-0.35)); c.fillStyle=rg; c.fillRect(sx-260,v.hor-240,520,520);
+  c.restore();
+}
+function palm(c,x,yb,s,seed,col){
+  const r=rng(seed), h=(7.8+r()*2.2)*s, lean=(r()-0.5)*1.4*s;
+  const tx=x+lean, ty=yb-h;
+  c.fillStyle=col;
+  c.beginPath();
+  c.moveTo(x-0.24*s,yb); c.quadraticCurveTo(x+lean*0.2-0.2*s,yb-h*0.55,tx-0.12*s,ty);
+  c.lineTo(tx+0.12*s,ty); c.quadraticCurveTo(x+lean*0.2+0.2*s,yb-h*0.55,x+0.24*s,yb); c.closePath(); c.fill();
+  const n=10;
+  for(let i=0;i<n;i++){
+    const a=-Math.PI*0.5 + (i/(n-1)-0.5)*Math.PI*1.85 + (r()-0.5)*0.25;
+    const L=(2.7+r()*1.1)*s, side=Math.cos(a);
+    const tipx=tx+side*L, tipy=ty+Math.sin(a)*L*0.55 + L*0.55*(1-Math.abs(Math.sin(a)))+L*0.18;
+    const mx=tx+side*L*0.5, my=ty+Math.sin(a)*L*0.5 - L*0.12, w=0.32*s;
+    c.beginPath(); c.moveTo(tx,ty);
+    c.quadraticCurveTo(mx, my-w, tipx, tipy);
+    c.quadraticCurveTo(mx, my+w*0.9, tx, ty+0.12*s);
+    c.closePath(); c.fill();
+  }
+  c.beginPath(); c.arc(tx,ty+0.25*s,0.32*s,0,Math.PI*2); c.fill();
+}
+function streetlight(c,v,X,z,dir,glows){
+  const s=F/z, f=fog(z), col=rgb(mix([18,14,26],HAZE,f));
+  const [x,yb]=P(v,X,0,z), [lx,ly]=P(v,X+dir*2.4,9.1,z);
+  c.strokeStyle=col; c.lineWidth=Math.max(1,0.17*s); c.lineCap='round';
+  c.beginPath(); c.moveTo(x,yb); c.lineTo(x,yb-8.6*s); c.quadraticCurveTo(x,ly,lx,ly); c.stroke();
+  c.fillStyle=col; c.beginPath(); c.ellipse(lx,ly+0.05*s,0.42*s,0.13*s,0,0,Math.PI*2); c.fill();
+  glows.push([lx,ly+0.12*s,2.6*s,1-f*0.7]);
+}
+function carAhead(c,v,X,z,glows){
+  const s=F/z, f=fog(z), [cx,cy]=P(v,X,0,z);
+  const bw=1.85*s, bh=0.85*s;
+  c.fillStyle=`rgba(0,0,0,${0.35*(1-f)})`; c.beginPath(); c.ellipse(cx,cy,bw*0.62,0.18*s,0,0,Math.PI*2); c.fill();
+  c.fillStyle=rgb(mix([20,17,30],HAZE,f*0.8));
+  c.beginPath(); c.roundRect(cx-bw/2,cy-bh-0.25*s,bw,bh,0.18*s); c.fill();
+  c.beginPath(); c.moveTo(cx-bw*0.42,cy-bh-0.2*s); c.lineTo(cx-bw*0.32,cy-1.45*s); c.lineTo(cx+bw*0.32,cy-1.45*s); c.lineTo(cx+bw*0.42,cy-bh-0.2*s); c.closePath(); c.fill();
+  c.fillStyle=rgb(mix([62,52,84],HAZE,f*0.8)); c.beginPath(); c.moveTo(cx-bw*0.36,cy-bh-0.24*s); c.lineTo(cx-bw*0.29,cy-1.38*s); c.lineTo(cx+bw*0.29,cy-1.38*s); c.lineTo(cx+bw*0.36,cy-bh-0.24*s); c.closePath(); c.fill();
+  c.fillStyle='rgba(255,60,55,.95)';
+  c.fillRect(cx-bw*0.47,cy-0.82*s,bw*0.2,0.09*s); c.fillRect(cx+bw*0.27,cy-0.82*s,bw*0.2,0.09*s);
+  glows.push([cx-bw*0.37,cy-0.78*s,0.9*s,0.9,[255,50,45]]); glows.push([cx+bw*0.37,cy-0.78*s,0.9*s,0.9,[255,50,45]]);
+}
+function drawObjects(c,v,t){
+  const items=[], travelled=SPEED*t;
+  const add=(period,offset,fn)=>{ const first=Math.floor((travelled+1.5-offset)/period)+1;
+    for(let n=first; n*period+offset-travelled<250; n++) items.push({z:n*period+offset-travelled, n, fn}); };
+  add(15,0,(z,n,g)=>{ const s=F/z,[x,y]=P(v,-10,0,z); palm(c,x,y,s,1000+n,rgb(mix([14,10,26],HAZE,fog(z)))); });
+  add(15,7.5,(z,n,g)=>{ const s=F/z,[x,y]=P(v,10,0,z); palm(c,x,y,s,5000+n,rgb(mix([14,10,26],HAZE,fog(z)))); });
+  add(42,20,(z,n,g)=>streetlight(c,v,-7.4,z,1,g));
+  add(42,41,(z,n,g)=>streetlight(c,v,7.4,z,-1,g));
+  items.push({z:31+5*Math.sin(t*0.21), fn:(z,n,g)=>carAhead(c,v,-3.7,z,g)});
+  items.sort((a,b)=>b.z-a.z);
+  const glows=[];
+  for(const it of items) if(it.z>1.6) it.fn(it.z,it.n,glows);
+  c.save(); c.globalCompositeOperation='lighter';
+  for(const [x,y,r,a,col] of glows){ const k=col||[255,196,140];
+    const g=c.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,rgb(k,0.55*a)); g.addColorStop(0.35,rgb(k,0.16*a)); g.addColorStop(1,rgb(k,0));
+    c.fillStyle=g; c.fillRect(x-r,y-r,2*r,2*r); }
+  c.restore();
+}
+
+/* ---------------- the car interior (fixed to camera) ---------------- */
+const WHEEL={x:560,y:1215,R:425,w:44};
+function drawCockpit(c,t){
+  c.clearRect(0,0,W,H);
+  // windshield glare + top tint
+  let g=c.createLinearGradient(300,0,1300,900);
+  g.addColorStop(0,'rgba(255,255,255,0)'); g.addColorStop(0.45,'rgba(255,255,255,.035)'); g.addColorStop(0.55,'rgba(255,255,255,0)');
+  c.fillStyle=g; c.fillRect(0,0,W,H);
+  g=c.createLinearGradient(0,0,0,170); g.addColorStop(0,'rgba(4,6,14,.75)'); g.addColorStop(1,'rgba(4,6,14,0)');
+  c.fillStyle=g; c.fillRect(0,0,W,170);
+  // dashboard
+  const dash=new Path2D();
+  dash.moveTo(0,H); dash.lineTo(0,852); dash.bezierCurveTo(500,816,1420,812,1920,858); dash.lineTo(1920,H); dash.closePath();
+  g=c.createLinearGradient(0,812,0,H); g.addColorStop(0,'#16161D'); g.addColorStop(0.12,'#0D0D12'); g.addColorStop(1,'#060608');
+  c.fillStyle=g; c.fill(dash);
+  c.strokeStyle='rgba(255,170,130,.16)'; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(0,852); c.bezierCurveTo(500,816,1420,812,1920,858); c.stroke();
+  // reflection of the dash top on the glass
+  g=c.createLinearGradient(0,790,0,830); g.addColorStop(0,'rgba(255,255,255,0)'); g.addColorStop(1,'rgba(255,255,255,.03)');
+  c.fillStyle=g; c.fillRect(0,790,W,40);
+  // instrument cluster hood + screen
+  c.fillStyle='#0B0B10';
+  c.beginPath(); c.moveTo(300,880); c.bezierCurveTo(330,826,790,826,820,880); c.lineTo(820,1080); c.lineTo(300,1080); c.closePath(); c.fill();
+  c.fillStyle='#05060A'; c.beginPath(); c.roundRect(372,872,376,128,18); c.fill();
+  g=c.createLinearGradient(372,872,372,1000); g.addColorStop(0,'rgba(120,170,255,.08)'); g.addColorStop(1,'rgba(120,170,255,0)');
+  c.fillStyle=g; c.beginPath(); c.roundRect(372,872,376,128,18); c.fill();
+  // speed gauge arc
+  const mph=43+1.2*Math.sin(t*0.5);
+  c.lineCap='round'; c.lineWidth=5;
+  c.strokeStyle='rgba(255,255,255,.12)'; c.beginPath(); c.arc(560,986,92,Math.PI*1.1,Math.PI*1.9); c.stroke();
+  c.strokeStyle='#57C7FF'; c.beginPath(); c.arc(560,986,92,Math.PI*1.1,Math.PI*(1.1+0.8*mph/100)); c.stroke();
+  c.fillStyle='#F2F6FF'; c.font='600 46px GDisplay'; c.textAlign='center'; c.textBaseline='alphabetic';
+  c.fillText(String(Math.round(mph)),560,968);
+  c.fillStyle='#7E8AA0'; c.font='600 13px GText'; c.fillText('MPH',560,988);
+  c.fillStyle='#57C7FF'; c.beginPath(); c.roundRect(410,960,26,4,2); c.fill();
+  c.fillStyle='#4CD964'; c.beginPath(); c.arc(700,958,4,0,Math.PI*2); c.fill();
+  // steering wheel
+  c.lineWidth=WHEEL.w; c.strokeStyle='#08080B'; c.lineCap='butt';
+  c.beginPath(); c.arc(WHEEL.x,WHEEL.y,WHEEL.R,Math.PI*1.02,Math.PI*1.98); c.stroke();
+  c.lineWidth=2; c.strokeStyle='rgba(255,190,150,.10)';
+  c.beginPath(); c.arc(WHEEL.x,WHEEL.y,WHEEL.R+WHEEL.w/2-1,Math.PI*1.12,Math.PI*1.88); c.stroke();
+  c.fillStyle='#09090C';
+  c.beginPath(); c.moveTo(WHEEL.x-WHEEL.R-10,1080); c.lineTo(WHEEL.x-250,1050); c.lineTo(WHEEL.x-140,1080); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(WHEEL.x+WHEEL.R+10,1080); c.lineTo(WHEEL.x+250,1050); c.lineTo(WHEEL.x+140,1080); c.closePath(); c.fill();
+  // center screen with a scrolling map
+  c.save();
+  c.beginPath(); c.roundRect(1090,884,370,176,18); c.fillStyle='#070A12'; c.fill(); c.clip();
+  c.translate(1275,1010); c.rotate(-0.12);
+  const off=(t*22)%60;
+  c.strokeStyle='rgba(150,165,190,.18)'; c.lineWidth=2;
+  for(let i=-6;i<=6;i++){ c.beginPath(); c.moveTo(i*60,-220); c.lineTo(i*60,120); c.stroke(); }
+  for(let j=-5;j<=3;j++){ c.beginPath(); c.moveTo(-400,j*60+off); c.lineTo(400,j*60+off); c.stroke(); }
+  c.strokeStyle='#3D8BFF'; c.lineWidth=7; c.lineCap='round'; c.lineJoin='round';
+  c.beginPath(); c.moveTo(0,40); c.lineTo(0,-110+off*0); c.lineTo(120,-110); c.stroke();
+  c.fillStyle='#FFFFFF'; c.beginPath(); c.moveTo(0,-10); c.lineTo(11,16); c.lineTo(0,10); c.lineTo(-11,16); c.closePath(); c.fill();
+  c.restore();
+  c.strokeStyle='rgba(255,255,255,.06)'; c.lineWidth=1.5; c.beginPath(); c.roundRect(1090,884,370,176,18); c.stroke();
+  // A-pillars and headliner
+  c.fillStyle='#07070A';
+  c.beginPath(); c.moveTo(0,0); c.lineTo(205,0); c.bezierCurveTo(150,300,90,600,52,858); c.lineTo(0,862); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(W,0); c.lineTo(W-205,0); c.bezierCurveTo(W-150,300,W-90,600,W-52,862); c.lineTo(W,866); c.closePath(); c.fill();
+  c.strokeStyle='rgba(255,180,150,.08)'; c.lineWidth=1.5;
+  c.beginPath(); c.moveTo(205,0); c.bezierCurveTo(150,300,90,600,52,858); c.stroke();
+  c.beginPath(); c.moveTo(W-205,0); c.bezierCurveTo(W-150,300,W-90,600,W-52,862); c.stroke();
+  c.beginPath(); c.moveTo(0,0); c.lineTo(W,0); c.lineTo(W,30); c.bezierCurveTo(1400,46,520,46,0,30); c.closePath(); c.fill();
+  // vignette
+  g=c.createRadialGradient(960,520,500,960,520,1250); g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,.45)');
+  c.fillStyle=g; c.fillRect(0,0,W,H);
+}
+function drawScene(t){
+  const v=view(t), c=sc;
+  c.clearRect(0,0,W,H);
+  drawSky(c,v,t); drawSkyline(c,v,t); drawGround(c,v); drawRoad(c,v,t); drawObjects(c,v,t);
+  drawCockpit(ck,t);
+}
+
+/* ================================================================
+   HUD — stats pop up on the windshield, then dock along the top
+   ================================================================ */
+const GAP=20, ROW={x:200,y:196,w:1520,h:224};
+const SLOTW=(ROW.w-GAP*3)/4;
+const SLOT=i=>[ROW.x+i*(SLOTW+GAP), ROW.y, SLOTW, ROW.h];
+const HERO=[580,440,760,336];
+const R={ dot0:[960,620,0,0], pill:[930,616,60,8], title:[340,510,1240,220] };
+const SCALE={hero:1.6, slot:1};
+const T={ boot:0.8, pillToTitle:1.25, titleText:1.9, toHeader:4.6, statA:5.5, dock:[8.6,12.6,16.6,20.6], morphDur:1.3, dockDur:1.5, popDur:0.95 };
+// a new card only pops once the previous one has cleared the hero spot
+const POP_AT=[null, T.dock[0]+0.95, T.dock[1]+0.95, T.dock[2]+0.95];
+const STAT_START=[T.statA, POP_AT[1]+0.45, POP_AT[2]+0.45, POP_AT[3]+0.45];
+const ROLL_T={ delay:0.08, stagger:0.055, dur:1.0 };
+const CELL=116, CELL_Y0=43+8;
+
+const $=s=>document.querySelector(s);
+const cards=STATS.map((s,i)=>{
+  const el=document.createElement('div'); el.className='card';
+  el.innerHTML=`<div class="sheen"></div><div class="content"><div class="pill"></div><div class="num"></div><div class="lab"><span></span></div></div>`;
+  $('#cards').appendChild(el);
+  el.querySelector('.pill').style.background=`rgb(${s.accent})`;
+  el.querySelector('.lab span').textContent=s.label;
+  const num=el.querySelector('.num');
+  const cols=[...s.value].map(ch=>{
+    const win=document.createElement('div'); win.className='win';
+    const mwrap=document.createElement('div'); mwrap.className='mwrap';
+    const strip=document.createElement('div'); strip.className='strip';
+    const cells=[' ', ch];                       // a character only ever shows its real value
+    strip.innerHTML=cells.map(c=>`<div>${c}</div>`).join('');
+    mwrap.appendChild(strip); win.appendChild(mwrap); num.appendChild(win);
+    return { ch, win, strip, cells, target:1 };
+  });
+  return { el, content:el.querySelector('.content'), pill:el.querySelector('.pill'), lab:el.querySelector('.lab span'), cols, stat:s };
+});
+const words=TITLE.map(w=>{ const el=document.createElement('div'); el.className='word'; el.innerHTML=`<span>${w}</span>`; $('#words').appendChild(el); return {el,inner:el.firstChild}; });
+const eyebrow=$('#eyebrow'), eyeInner=eyebrow.firstChild, srcInner=$('#source').firstChild;
+
+const svgNS='http://www.w3.org/2000/svg';
+const svg=document.createElementNS(svgNS,'svg'); svg.setAttribute('width',0); svg.setAttribute('height',0); svg.style.position='absolute';
+const defs=document.createElementNS(svgNS,'defs'); svg.appendChild(defs); document.body.appendChild(svg);
+let fid=0;
+cards.forEach(c=>c.cols.forEach(col=>{
+  const f=document.createElementNS(svgNS,'filter'); f.id='mb'+(fid++);
+  f.setAttribute('x','-20%'); f.setAttribute('y','-50%'); f.setAttribute('width','140%'); f.setAttribute('height','200%');
+  const g=document.createElementNS(svgNS,'feGaussianBlur'); g.setAttribute('stdDeviation','0 0'); f.appendChild(g); defs.appendChild(f);
+  col.filter=f.id; col.blur=g; col.lastBlur=-1;
+}));
+
+let L=null;
+function measure(){
+  cards.forEach(c=>{
+    c.cols.forEach(col=>{
+      const p=document.createElement('span');
+      p.style.cssText='position:absolute;visibility:hidden;font-family:GDisplay;font-weight:600;font-size:80px;white-space:pre';
+      p.textContent=col.ch; document.body.appendChild(p);
+      col.w=p.getBoundingClientRect().width-80*0.018; p.remove(); col.win.style.width=col.w+'px';
+    });
+    c.h0=c.content.offsetHeight;
+  });
+  const sp=document.createElement('span');
+  sp.style.cssText='position:absolute;visibility:hidden;font-family:GDisplay;font-weight:600;font-size:88px;letter-spacing:-.018em;white-space:pre';
+  document.body.appendChild(sp);
+  sp.textContent=' '; const space=sp.getBoundingClientRect().width;
+  const ww=TITLE.map(w=>{ sp.textContent=w; return sp.getBoundingClientRect().width; }); sp.remove();
+  const eyeW=eyeInner.getBoundingClientRect().width;
+  const tc=R.title, sA=64/88, A=[], B=[];
+  const tw=(ww.reduce((a,b)=>a+b,0)+space*(ww.length-1))*sA;
+  let x=tc[0]+tc[2]/2-tw/2; TITLE.forEach((w,i)=>{ A[i]={x,y:tc[1]+97,s:sA}; x+=(ww[i]+space)*sA; });
+  const sB=0.545; x=210; TITLE.forEach((w,i)=>{ B[i]={x,y:98,s:sB}; x+=(ww[i]+space)*sB; });
+  L={A,B,eyeA:{x:tc[0]+tc[2]/2-eyeW/2,y:tc[1]+55,s:1},eyeB:{x:210,y:70,s:0.9}};
+}
+
+/* docking: shrink and slide across to the slot's column first, then rise into the row —
+   so a docking card never crosses a card that is already docked */
+const dockX=(i,t)=>MORPH(clamp((t-T.dock[i])/T.dockDur/0.7));
+const dockY=(i,t)=>MORPH(clamp(((t-T.dock[i])/T.dockDur-0.3)/0.7));
+function dockRect(i,t){
+  const px=dockX(i,t), py=dockY(i,t), S=SLOT(i);
+  const x=lerp(HERO[0],S[0],px), w=lerp(HERO[2],S[2],px), h=lerp(HERO[3],S[3],px);
+  const top0=HERO[1]+HERO[3]/2-h/2;
+  return [x, lerp(top0,S[1],py), w, h];
+}
+function rectOf(i,t){
+  if(t>=T.dock[i]) return dockRect(i,t);
+  if(i===0) return track(t,[
+    [T.boot,R.dot0],[T.boot+0.4,R.pill,spring(0.7,9)],[T.pillToTitle,R.pill],[T.pillToTitle+1.25,R.title,SOFT],
+    [T.toHeader,R.title],[T.toHeader+T.morphDur,HERO,MORPH]]);
+  const p=POP_AT[i]; if(t<p) return [0,0,0,0];
+  const dot=[HERO[0]+HERO[2]/2-20,HERO[1]+HERO[3]/2-4,40,8];
+  return track(t,[[p,dot],[p+T.popDur,HERO,POP]]);
+}
+const scaleOf=(i,t)=>lerp(SCALE.hero,SCALE.slot,dockX(i,t));
+const dockOf=(i,t)=>dockX(i,t);
+function radiusOf(i,t){
+  const r = i===0 ? track(t,[[T.boot,4],[T.pillToTitle,4],[T.pillToTitle+1.25,30,SOFT]]) : 30;
+  return lerp(r,22,dockX(i,t));
+}
+/* hero (focused) card gets its accent ring; docked cards go neutral */
+function focusOf(i,t){
+  const on = i===0 ? T.toHeader+0.5 : POP_AT[i]+0.2;
+  return seg(t,on,0.8,INOUT)*(1-seg(t,T.dock[i],0.9,INOUT));
+}
+
+function render(t){
+  drawScene(t);
+  cards.forEach((c,i)=>{
+    const r=rectOf(i,t), w=Math.max(0,r[2]), h=Math.max(0,r[3]);
+    const vis=w>0.5&&h>0.5; c.el.style.display=vis?'block':'none'; if(!vis) return;
+    const rad=Math.min(radiusOf(i,t),w/2,h/2);
+    Object.assign(c.el.style,{left:r[0]+'px',top:r[1]+'px',width:w+'px',height:h+'px',borderRadius:rad+'px'});
+    // the boot dot is bright, then becomes HUD glass
+    const glass=[14,18,32,0.55], boot=[235,245,255,0.95];
+    const bg = i===0 ? lerp(boot,glass,seg(t,T.boot+0.25,0.6,INOUT)) : lerp([235,245,255,0.95],glass,seg(t,POP_AT[i]||0,0.45,INOUT));
+    c.el.style.background=`rgba(${bg.slice(0,3).map(Math.round)},${bg[3].toFixed(3)})`;
+    const f=focusOf(i,t), ac=STATS[i].accent, ring=lerp([255,255,255,0.16],[...ac,0.55],f);
+    c.el.style.boxShadow=`inset 0 0 0 1.5px rgba(${ring.slice(0,3).map(Math.round)},${ring[3].toFixed(3)}), 0 0 ${48*f}px rgba(${ac},${(0.28*f).toFixed(3)}), 0 18px 50px rgba(0,0,0,.35)`;
+
+    const s=scaleOf(i,t), d=dockOf(i,t);
+    const padX=lerp(46,24,d), centred=(h-c.h0*s)/2, topAnchored=24;
+    c.content.style.transform=`translate(${padX}px,${lerp(centred,topAnchored,d)}px) scale(${s})`;
+    const st=STAT_START[i];
+    c.pill.style.transform=`scaleX(${seg(t,st,0.8,OUT)})`;
+    c.cols.forEach((col,j)=>{
+      const t0=st+ROLL_T.delay+j*ROLL_T.stagger;
+      const p=RISE(clamp((t-t0)/ROLL_T.dur)), pp=RISE(clamp((t-1/60-t0)/ROLL_T.dur));
+      col.pos=p;
+      col.strip.style.transform=`translateY(${CELL_Y0-p*CELL-CELL/2}px)`;
+      const blur=Math.min(4,Math.abs(p-pp)*CELL*0.2*s), b=blur<0.35?0:Math.round(blur*10)/10;
+      if(b!==col.lastBlur){ col.lastBlur=b; col.blur.setAttribute('stdDeviation',`0 ${b}`); col.strip.style.filter=b?`url(#${col.filter})`:'none'; }
+    });
+    c.lab.style.transform=`translateY(${(1-seg(t,st+0.38,1.0,OUT))*130}%)`;
+  });
+  if(L){
+    words.forEach((wd,i)=>{
+      const rv=seg(t,T.titleText+0.1+i*0.05,1.0,OUT);
+      wd.inner.style.transform=`translateY(${(1-rv)*135}%)`;
+      const p=seg(t,T.toHeader,T.morphDur,MORPH), a=L.A[i], b=L.B[i];
+      wd.el.style.transform=`translate(${lerp(a.x,b.x,p)}px,${lerp(a.y,b.y,p)}px) scale(${lerp(a.s,b.s,p)})`;
+    });
+    eyeInner.style.transform=`translateY(${(1-seg(t,T.titleText,1.0,OUT))*140}%)`;
+    const ep=seg(t,T.toHeader,T.morphDur,MORPH);
+    eyebrow.style.transform=`translate(${lerp(L.eyeA.x,L.eyeB.x,ep)}px,${lerp(L.eyeA.y,L.eyeB.y,ep)}px) scale(${lerp(L.eyeA.s,L.eyeB.s,ep)})`;
+  }
+  srcInner.style.transform=`translateY(${(1-seg(t,T.toHeader+0.9,1.0,OUT))*140}%)`;
+}
+
+window.ready=(async()=>{
+  await Promise.all([document.fonts.load('600 80px GDisplay'),document.fonts.load('500 22px GText'),document.fonts.load('600 22px GText')]);
+  await document.fonts.ready; measure(); render(0); return true;
+})();
+window.render=render;
+window.__data={STATS,cards,DURATION,T,ROLL_T,STAT_START,POP_AT,CELL,CELL_Y0,rectOf,SLOT,HERO};
+const q=new URLSearchParams(location.search);
+if(!q.has('capture')) window.ready.then(()=>{
+  if(q.has('t')){ render(+q.get('t')); return; }
+  const t0=performance.now(); const loop=now=>{ render(((now-t0)/1000)%(DURATION+1)); requestAnimationFrame(loop); }; requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
