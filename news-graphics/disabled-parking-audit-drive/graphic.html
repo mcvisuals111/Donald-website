@@ -471,7 +471,8 @@ function render(t){
     Object.assign(c.el.style,{left:r[0]+'px',top:r[1]+'px',width:w+'px',height:h+'px',borderRadius:rad+'px'});
     // the boot dot is bright, then becomes HUD glass
     const glass=[14,18,32,0.55], boot=[235,245,255,0.95];
-    const bg = i===0 ? lerp(boot,glass,seg(t,T.boot+0.25,0.6,INOUT)) : lerp([235,245,255,0.95],glass,seg(t,POP_AT[i]||0,0.45,INOUT));
+    // bright only while it is still a small dot, then glass
+    const bg = i===0 ? lerp(boot,glass,seg(t,T.boot+0.2,0.35,INOUT)) : glass;   // pop-up cards are glass from their first frame
     c.el.style.background=`rgba(${bg.slice(0,3).map(Math.round)},${bg[3].toFixed(3)})`;
     const f=focusOf(i,t), ac=STATS[i].accent, ring=lerp([255,255,255,0.16],[...ac,0.55],f);
     c.el.style.boxShadow=`inset 0 0 0 1.5px rgba(${ring.slice(0,3).map(Math.round)},${ring[3].toFixed(3)}), 0 0 ${48*f}px rgba(${ac},${(0.28*f).toFixed(3)}), 0 18px 50px rgba(0,0,0,.35)`;
