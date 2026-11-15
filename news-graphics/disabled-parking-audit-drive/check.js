@@ -53,7 +53,13 @@ const path = require('path');
         if(Math.min(a.right,c.right)-Math.max(a.left,c.left)>0.5 && Math.min(a.bottom,c.bottom)-Math.max(a.top,c.top)>0.5) fail(f,`cards ${i} and ${j} overlap`); }
       // header text never touches the source line or the cards
       const tw=document.querySelectorAll('.word'), lastW=tw[tw.length-1].getBoundingClientRect(), sr=document.querySelector('#source span').getBoundingClientRect();
-      if(t>D.T.toHeader+D.T.morphDur && lastW.right>sr.left-40) fail(f,'title runs into source line');
+      if(t>D.T.toHeader+D.T.morphDur){
+        const wb=Math.max(...[...tw].map(w=>w.getBoundingClientRect().bottom));
+        if(sr.top < wb-14) fail(f,'source line collides with title');            // word boxes include descender padding
+        rects.forEach((r,i)=>{ if(r && r.top < sr.bottom+6 && r.left < sr.right) fail(f,`card ${i} touches source line`); });
+      }
+      // nothing on the HUD may sit under the rearview mirror / placard
+      rects.forEach((r,i)=>{ if(r && r.right > 1500 && r.top < 330) fail(f,`card ${i} under the mirror/placard`); });
       const snap={rects:rects.map(r=>r&&[r.left,r.top,r.width,r.height]), words:[...document.querySelectorAll('.word,#eyebrow')].map(w=>{const r=w.getBoundingClientRect();return [r.left,r.top,r.width];})};
       if(prev){
         snap.rects.forEach((r,i)=>{ const q=prev.rects[i]; if(r&&q){ const d=Math.max(...r.map((v,k)=>Math.abs(v-q[k]))); if(d>90) fail(f,`card ${i} jumped ${d.toFixed(0)}px`);} });
