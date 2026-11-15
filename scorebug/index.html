@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scorebug Lower Third</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800;1,900&family=Barlow+Semi+Condensed:wght@700;800&display=swap" rel="stylesheet">
+<style>
+/*
+  Scorebug lower third — 1920x1080 broadcast canvas.
+  OBS: add as a Browser Source (1920x1080). Background is transparent inside OBS automatically.
+  Keys:  SPACE = animate in / out   R = replay
+  URL:   ?transparent=1  forces a transparent background in a normal browser
+*/
+:root{
+  --bar:#121214;
+  --bar-hi:#1d1d21;
+  --strip:#0b0b0d;
+  --text:#ffffff;
+  --dim:#6b6b70;
+
+  /* left team (purple) */
+  --l1:#7b2fd6;
+  --l2:#4b148f;
+  --l-edge:#9b4dff;
+  /* right team (orange) */
+  --r1:#f47321;
+  --r2:#b8460a;
+  --r-edge:#ff8a2b;
+
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --ease-io:cubic-bezier(.76,0,.24,1);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;overflow:hidden}
+body{background:#0c1a10;font-family:'Barlow Condensed',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body.transparent{background:transparent}
+
+/* preview backdrop (hidden in OBS / transparent mode) */
+.backdrop{position:absolute;inset:0;
+  background:
+    radial-gradient(120% 70% at 50% 20%, #d9a36a 0%, #c98d55 45%, #a8703f 70%, transparent 71%),
+    linear-gradient(#1d5a2c,#123d1e);
+}
+.backdrop::after{content:"";position:absolute;inset:0;
+  background:repeating-linear-gradient(90deg,rgba(0,0,0,.05) 0 2px,transparent 2px 64px);
+  mask:radial-gradient(120% 70% at 50% 20%,#000 70%,transparent 71%);
+  -webkit-mask:radial-gradient(120% 70% at 50% 20%,#000 70%,transparent 71%)}
+body.transparent .backdrop{display:none}
+
+/* fixed 1920x1080 stage, scaled to fit the window */
+#stage{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform-origin:center center}
+
+/* ================= SCOREBUG ================= */
+.bug{
+  position:absolute;left:50%;bottom:64px;
+  width:1240px;height:168px;
+  transform:translateX(-50%);
+  font-family:'Barlow Condensed',sans-serif;color:var(--text);
+}
+/* main black plate */
+.plate{
+  position:absolute;inset:0;
+  background:linear-gradient(180deg,var(--bar-hi) 0%,var(--bar) 38%,#0e0e10 100%);
+  border-radius:3px;
+  box-shadow:0 10px 30px rgba(0,0,0,.55),0 2px 6px rgba(0,0,0,.4);
+  overflow:hidden;
+}
+/* coloured outline that glows purple on the left, orange on the right */
+.plate::after{
+  content:"";position:absolute;inset:0;border-radius:3px;pointer-events:none;
+  padding:3px;
+  background:linear-gradient(90deg,var(--l-edge) 0%,rgba(155,77,255,.0) 30%,rgba(255,138,43,0) 70%,var(--r-edge) 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+}
+
+/* ---------- team panels ---------- */
+.team{position:absolute;top:0;bottom:0;width:330px;overflow:hidden}
+.team.left{left:0}
+.team.right{right:0}
+
+.team .name{
+  position:absolute;top:0;left:0;right:0;height:58px;
+  background:linear-gradient(180deg,#26262b 0%,#141417 100%);
+  display:flex;align-items:center;padding:0 22px;
+  font-weight:700;font-size:38px;letter-spacing:-.2px;line-height:1;text-transform:uppercase;
+  white-space:nowrap;
+}
+.team.right .name{justify-content:flex-end}
+.team .name .rank{font-size:27px;font-weight:700;margin-right:8px;align-self:center;position:relative;top:2px}
+
+/* coloured streak under the name strip */
+.team .streak{position:absolute;top:56px;height:6px;width:100%}
+.team.left .streak{left:0;background:linear-gradient(90deg,var(--l-edge) 0%,var(--l1) 35%,rgba(123,47,214,0) 85%);clip-path:polygon(0 0,100% 40%,100% 60%,0 100%)}
+.team.right .streak{right:0;background:linear-gradient(270deg,var(--r-edge) 0%,var(--r1) 35%,rgba(244,115,33,0) 85%);clip-path:polygon(0 40%,100% 0,100% 100%,0 60%)}
+
+/* colour field behind the logo */
+.team .field{position:absolute;top:58px;bottom:0;width:100%}
+.team.left .field{left:0;background:linear-gradient(90deg,var(--l1) 0%,var(--l2) 30%,rgba(60,18,115,.55) 55%,rgba(20,20,24,0) 80%)}
+.team.right .field{right:0;background:linear-gradient(270deg,var(--r1) 0%,var(--r2) 30%,rgba(150,58,10,.55) 55%,rgba(20,20,24,0) 80%)}
+
+/* logos */
+.logo{position:absolute;top:66px;width:96px;height:96px;display:flex;align-items:center;justify-content:center}
+.team.left .logo{left:20px;background:#fff;border-radius:50%;box-shadow:0 0 0 3px rgba(255,255,255,.25),0 4px 10px rgba(0,0,0,.35)}
+.team.left .logo img{width:96%;height:96%;object-fit:contain;transform:translate(-1px,-3px)}
+.team.right .logo{right:24px;width:116px;height:104px;top:62px}
+.team.right .logo img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 0 1.5px rgba(255,255,255,.9)) drop-shadow(0 3px 6px rgba(0,0,0,.35))}
+
+.fouls{position:absolute;bottom:22px;font-weight:600;font-size:25px;letter-spacing:.2px;line-height:1}
+.team.left .fouls{right:30px}
+.team.right .fouls{left:30px}
+
+/* ---------- scores ---------- */
+.score{
+  position:absolute;top:22px;width:150px;text-align:center;
+  font-family:'Barlow Semi Condensed',sans-serif;font-weight:800;font-size:104px;line-height:1;letter-spacing:-3px;
+  text-shadow:0 2px 0 rgba(0,0,0,.35);
+}
+.score.left{left:330px}
+.score.right{right:330px}
+
+/* timeouts */
+.tos{position:absolute;bottom:22px;display:flex;gap:9px}
+.tos.left{left:338px}
+.tos.right{right:346px}
+.tos i{display:block;width:26px;height:9px;border-radius:5px;background:#f2f2f2;box-shadow:0 0 4px rgba(255,255,255,.35)}
+.tos i.used{background:#3a3a3f;box-shadow:none}
+
+/* possession badge */
+.poss{position:absolute;bottom:16px;left:482px;width:26px;height:28px;border-radius:5px;background:#f2f2f2;color:#111;
+  font-family:'Barlow Semi Condensed',sans-serif;font-weight:800;font-size:21px;display:flex;align-items:center;justify-content:center}
+.poss.right{left:auto;right:482px}
+
+/* ---------- centre clock ---------- */
+.clock{
+  position:absolute;left:50%;top:26px;width:300px;height:82px;transform:translateX(-50%);
+  border-radius:41px;padding:5px;
+  background:linear-gradient(90deg,#d9d9db 0%,#9a9aa0 45%,#c4612a 75%,var(--r-edge) 100%);
+  box-shadow:0 0 0 2px #050506,0 6px 14px rgba(0,0,0,.5);
+}
+.clock .in{
+  width:100%;height:100%;border-radius:36px;
+  background:linear-gradient(180deg,#ffffff 0%,#ececee 100%);
+  box-shadow:inset 0 0 0 2px #1a1a1d;
+  display:flex;align-items:center;justify-content:space-between;padding:0 26px 0 24px;color:#121214;
+  font-family:'Barlow Semi Condensed',sans-serif;font-weight:800;line-height:1;
+}
+.clock .per{font-size:34px;letter-spacing:-.5px}
+.clock .per sup{font-size:19px;vertical-align:top;position:relative;top:-1px;margin-left:1px}
+.clock .time{font-size:50px;letter-spacing:-1px;font-variant-numeric:tabular-nums}
+.clock .shot{font-size:34px;font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
+
+/* network mark under the clock (editable text) */
+.net{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);text-align:center;line-height:1}
+.net b{display:block;font-family:'Barlow Condensed',sans-serif;font-style:italic;font-weight:900;font-size:40px;letter-spacing:-1px;
+  transform:skewX(-6deg);text-shadow:0 2px 0 rgba(0,0,0,.4)}
+.net b::before{content:"";display:inline-block;width:34px;height:3px;background:#fff;vertical-align:middle;margin-right:6px;transform:translateY(-4px) skewX(-30deg)}
+.net small{display:block;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:lowercase;opacity:.8;margin-top:-2px;text-align:right}
+
+/* ================= ANIMATION ================= */
+/* resting (hidden) state */
+.bug .plate{clip-path:inset(0 50% 0 50% round 3px)}
+.bug .clock{opacity:0;transform:translateX(-50%) scale(.6)}
+.bug .team.left .field,.bug .team.left .name,.bug .team.left .streak{transform:translateX(-102%)}
+.bug .team.right .field,.bug .team.right .name,.bug .team.right .streak{transform:translateX(102%)}
+.bug .logo{opacity:0;transform:scale(.4) rotate(-20deg)}
+.bug .score,.bug .fouls,.bug .net,.bug .poss{opacity:0}
+.bug .score{transform:translateY(24px)}
+.bug .net{transform:translateX(-50%) translateY(10px)}
+.bug .tos i{opacity:0;transform:scaleX(0)}
+.bug .team .name span{display:inline-block;opacity:0;transform:translateY(100%)}
+.bug .team .name{overflow:hidden}
+
+/* IN */
+.bug.in .clock{animation:clockIn .55s var(--ease-out) .05s forwards}
+.bug.in .plate{animation:plateIn .7s var(--ease-io) .25s forwards}
+.bug.in .team .field{animation:slideIn .65s var(--ease-out) .7s forwards}
+.bug.in .team .name{animation:slideIn .6s var(--ease-out) .78s forwards}
+.bug.in .team .streak{animation:slideIn .7s var(--ease-out) .9s forwards}
+.bug.in .team .name span{animation:rise .45s var(--ease-out) 1.05s forwards}
+.bug.in .logo{animation:logoIn .6s cubic-bezier(.34,1.56,.64,1) 1.05s forwards}
+.bug.in .score{animation:scoreIn .55s var(--ease-out) 1.0s forwards}
+.bug.in .score.right{animation-delay:1.08s}
+.bug.in .tos i{animation:pill .35s var(--ease-out) forwards}
+.bug.in .tos i:nth-child(1){animation-delay:1.25s}
+.bug.in .tos i:nth-child(2){animation-delay:1.31s}
+.bug.in .tos i:nth-child(3){animation-delay:1.37s}
+.bug.in .tos i:nth-child(4){animation-delay:1.43s}
+.bug.in .fouls,.bug.in .poss{animation:fade .4s ease 1.35s forwards}
+.bug.in .net{animation:netIn .5s var(--ease-out) 1.2s forwards}
+
+@keyframes clockIn{0%{opacity:0;transform:translateX(-50%) scale(.6)}60%{opacity:1}100%{opacity:1;transform:translateX(-50%) scale(1)}}
+@keyframes plateIn{to{clip-path:inset(0 0 0 0 round 3px)}}
+@keyframes slideIn{to{transform:translateX(0)}}
+@keyframes rise{to{opacity:1;transform:none}}
+@keyframes logoIn{to{opacity:1;transform:none}}
+@keyframes scoreIn{to{opacity:1;transform:none}}
+@keyframes pill{to{opacity:1;transform:none}}
+@keyframes fade{to{opacity:1}}
+@keyframes netIn{to{opacity:1;transform:translateX(-50%)}}
+
+/* OUT */
+.bug.out{animation:bugOut .55s var(--ease-io) forwards}
+@keyframes bugOut{0%{clip-path:inset(0 0 0 0);opacity:1}100%{clip-path:inset(0 50% 0 50%);opacity:0}}
+
+/* score change flash */
+.score.bump{animation:bump .5s var(--ease-out)!important;opacity:1;transform:none}
+@keyframes bump{0%{transform:scale(1.25);color:#ffe9a8}100%{transform:none;color:#fff}}
+
+@media (prefers-reduced-motion:reduce){
+  .bug.in *,.bug.in .plate{animation-duration:.01s!important;animation-delay:0s!important}
+}
+</style>
+</head>
+<body>
+<div class="backdrop" aria-hidden="true"></div>
+
+<div id="stage">
+  <div class="bug" id="bug" aria-label="Scoreboard">
+    <div class="plate">
+      <!-- LEFT TEAM -->
+      <div class="team left">
+        <div class="field"></div>
+        <div class="name"><span data-k="leftName">NORTH ALABAMA</span></div>
+        <div class="streak"></div>
+        <div class="logo"><img data-k="leftLogo" src="logos/raiders-head.png" alt=""></div>
+        <div class="fouls">FOULS: <span data-k="leftFouls">1</span></div>
+      </div>
+
+      <div class="score left" data-k="leftScore">30</div>
+      <div class="tos left" data-k="leftTO"></div>
+      <div class="poss" id="poss">P</div>
+
+      <!-- CENTRE -->
+      <div class="clock">
+        <div class="in">
+          <span class="per" data-k="period">2<sup>ND</sup></span>
+          <span class="time" data-k="clock">16:26</span>
+          <span class="shot" data-k="shot">14</span>
+        </div>
+      </div>
+      <div class="net"><b data-k="network">LIVE</b><small data-k="networkSub">stream</small></div>
+
+      <div class="score right" data-k="rightScore">59</div>
+      <div class="tos right" data-k="rightTO"></div>
+
+      <!-- RIGHT TEAM -->
+      <div class="team right">
+        <div class="field"></div>
+        <div class="name"><span><span class="rank" data-k="rightRank">17</span><span data-k="rightName">MIAMI</span></span></div>
+        <div class="streak"></div>
+        <div class="logo"><img data-k="rightLogo" src="logos/g-spartan.png" alt=""></div>
+        <div class="fouls">FOULS: <span data-k="rightFouls">1</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- EDIT THESE ---------------- */
+const STATE = {
+  leftName:'NORTH ALABAMA', leftLogo:'logos/raiders-head.png', leftScore:30, leftFouls:1, leftTO:3,
+  rightRank:'17', rightName:'MIAMI', rightLogo:'logos/g-spartan.png', rightScore:59, rightFouls:1, rightTO:3,
+  period:'2ND', clock:'16:26', shot:'14',
+  possession:'left',        // 'left' | 'right' | ''
+  network:'LIVE', networkSub:'stream',
+  totalTO:4
+};
+/* -------------------------------------------- */
+
+const bug = document.getElementById('bug');
+const $ = k => bug.querySelector(`[data-k="${k}"]`);
+
+// URL overrides, e.g. ?leftName=EAST&leftScore=12
+const qs = new URLSearchParams(location.search);
+for (const k of Object.keys(STATE)) if (qs.has(k)) STATE[k] = isNaN(+STATE[k]) || typeof STATE[k]!=='number' ? qs.get(k) : +qs.get(k);
+if (window.obsstudio || qs.get('transparent') === '1') document.body.classList.add('transparent');
+
+function pills(el, left, total){
+  el.innerHTML = '';
+  for (let i = 0; i < total; i++){
+    const p = document.createElement('i');
+    if (i >= left) p.className = 'used';
+    el.appendChild(p);
+  }
+}
+function periodHTML(p){
+  const m = String(p).match(/^(\d+)(ST|ND|RD|TH)$/i);
+  return m ? `${m[1]}<sup>${m[2].toUpperCase()}</sup>` : p;
+}
+function render(prev = {}){
+  $('leftName').textContent = STATE.leftName;
+  $('rightName').textContent = STATE.rightName;
+  $('rightRank').textContent = STATE.rightRank;
+  $('rightRank').style.display = STATE.rightRank ? '' : 'none';
+  $('leftLogo').src = STATE.leftLogo;
+  $('rightLogo').src = STATE.rightLogo;
+  $('leftFouls').textContent = STATE.leftFouls;
+  $('rightFouls').textContent = STATE.rightFouls;
+  $('period').innerHTML = periodHTML(STATE.period);
+  $('clock').textContent = STATE.clock;
+  $('shot').textContent = STATE.shot;
+  $('network').textContent = STATE.network;
+  $('networkSub').textContent = STATE.networkSub;
+  pills($('leftTO'), STATE.leftTO, STATE.totalTO);
+  pills($('rightTO'), STATE.rightTO, STATE.totalTO);
+  const poss = document.getElementById('poss');
+  poss.style.visibility = STATE.possession ? 'visible' : 'hidden';
+  poss.classList.toggle('right', STATE.possession === 'right');
+  for (const side of ['leftScore','rightScore']){
+    const el = $(side);
+    el.textContent = STATE[side];
+    if (prev[side] !== undefined && prev[side] !== STATE[side] && bug.classList.contains('in')){
+      el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+    }
+  }
+}
+
+function animateIn(){
+  bug.classList.remove('out','in'); void bug.offsetWidth; bug.classList.add('in');
+}
+function animateOut(){
+  bug.classList.add('out');
+  setTimeout(() => bug.classList.remove('in'), 560);
+}
+function toggle(){ bug.classList.contains('in') && !bug.classList.contains('out') ? animateOut() : animateIn(); }
+
+// public API: scorebug.set({leftScore:32}), scorebug.in(), scorebug.out()
+window.scorebug = {
+  set(patch){ const prev = {...STATE}; Object.assign(STATE, patch); render(prev); },
+  in: animateIn, out: animateOut, toggle, state: STATE
+};
+
+addEventListener('keydown', e => {
+  if (e.code === 'Space'){ e.preventDefault(); toggle(); }
+  if (e.key === 'r' || e.key === 'R') animateIn();
+});
+document.addEventListener('click', toggle);
+
+// scale the 1920x1080 stage to the window
+const stage = document.getElementById('stage');
+function fit(){
+  const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+  stage.style.transform = `translate(-50%,-50%) scale(${s})`;
+}
+addEventListener('resize', fit); fit();
+
+render();
+// wait for fonts + logos so the animation never plays with fallback type
+Promise.all([
+  document.fonts ? document.fonts.ready : Promise.resolve(),
+  ...[...bug.querySelectorAll('img')].map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; }))
+]).then(() => setTimeout(animateIn, 250));
+</script>
+</body>
+</html>
