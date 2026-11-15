@@ -4,7 +4,8 @@
 `parking-audit-drive_final-frame.png` is the end frame as a still.
 
 The view is the driver's seat on a palm-lined Miami boulevard at sunset. The stats pop up as glass
-heads-up cards on the windshield, then dock along the top. The whole scene is drawn in code, so it
+heads-up cards on the windshield, then dock along the top. A blue disabled-parking placard hangs from the rearview mirror and swings with the car,
+and SPEED LIMIT 45 signs pass on both sides. The whole scene is drawn in code, so it
 has no stock footage and no licensing.
 
 Source: Miami-Dade County Tax Collector, October 20, 2026.
