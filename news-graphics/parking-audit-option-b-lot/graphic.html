@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Parking Audit Lot</title>
+<style>
+@font-face{font-family:"GDisplay";src:url(fonts/InterDisplay-SemiBold.otf);font-weight:600}
+@font-face{font-family:"GText";src:url(fonts/Inter-Medium.otf);font-weight:500}
+@font-face{font-family:"GText";src:url(fonts/Inter-SemiBold.otf);font-weight:600}
+@font-face{font-family:"GSerif";src:url(fonts/SourceSerif4.woff2);font-weight:200 900}
+:root{
+  --paper:#F3F0E8; --ink:#15171A; --muted:#5B5F66; --rule:#D9D3C5;
+  --isa:#1F5FAE; --ticket:#E9B526; --void:#C23A2C; --badge:#A9802F;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#000}
+body{overflow:hidden}
+#stage{position:relative;width:1920px;height:1080px;overflow:hidden;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;background:#5E6B4A}
+#lot{position:absolute;left:0;top:0;width:1920px;height:1080px}
+
+/* ---------- editorial panel ---------- */
+#panel{position:absolute;left:0;top:0;width:660px;height:1080px;background:var(--paper);
+  box-shadow:12px 0 40px rgba(0,0,0,.18)}
+#panel .in{position:absolute;inset:0}
+.mask{display:block;clip-path:inset(-6px -30px -12px -30px)}
+.mask > span{display:inline-block}
+#eyebrow{position:absolute;left:72px;top:84px;font:600 17px/22px GText;letter-spacing:.16em;color:#6A6E75;white-space:nowrap}
+#title{position:absolute;left:72px;top:118px;width:540px;font:600 54px/60px GSerif;letter-spacing:-.01em;color:var(--ink);font-variation-settings:"opsz" 60}
+#title .mask{clip-path:inset(-4px -30px -16px -30px)}
+#rule{position:absolute;left:72px;top:276px;height:2px;width:516px;background:var(--rule);transform-origin:0 50%}
+.row{position:absolute;left:72px;width:530px;height:130px}
+.row .icon{position:absolute;left:0;top:8px;width:56px;height:56px;transform-origin:50% 50%}
+.row .num{position:absolute;left:84px;top:-6px;display:flex;font:600 64px/70px GDisplay;color:var(--ink);height:70px;white-space:nowrap}
+.win{position:relative;height:70px}
+.mwrap{position:absolute;left:-45%;right:-45%;top:-6px;bottom:-12px;
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 6px,#000 calc(100% - 10px),transparent 100%);
+          mask-image:linear-gradient(to bottom,transparent 0,#000 6px,#000 calc(100% - 10px),transparent 100%)}
+.strip{position:absolute;left:0;right:0;top:0;text-align:center}
+.strip div{height:96px;line-height:96px}
+.row .lab{position:absolute;left:84px;top:70px;width:440px;font:500 22px/28px GText;color:var(--muted)}
+#bar{position:absolute;left:44px;width:5px;border-radius:3px}
+#foot{position:absolute;left:72px;top:940px;width:530px;font:500 16px/22px GText;color:#6A6E75}
+#foot b{font-weight:600;color:#3E4248}
+#key{position:absolute;left:1488px;top:28px;height:34px;display:flex;align-items:center;gap:10px;padding:0 14px 0 10px;
+  background:rgba(21,23,26,.82);border-radius:8px;font:600 16px/20px GText;color:#F3F0E8;white-space:nowrap;clip-path:inset(0 100% 0 0 round 8px)}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="lot" width="3840" height="2160"></canvas>
+  <div id="key"><svg width="16" height="22" viewBox="0 0 16 22"><rect x="1" y="1" width="14" height="20" rx="1.5" fill="none" stroke="#5C93DA" stroke-width="2"/></svg><span>1 space = 100 applications</span></div>
+  <div id="panel"><div class="in">
+    <div id="eyebrow" class="mask"><span>MIAMI-DADE COUNTY · COUNTYWIDE AUDIT</span></div>
+    <div id="title"><span class="mask"><span>Disabled Parking</span></span><span class="mask"><span>Permit Investigation</span></span></div>
+    <div id="rule"></div>
+    <div id="bar"></div>
+    <div id="rows"></div>
+    <div id="foot"><span class="mask"><span>Each space represents 100 applications, rounded to the nearest whole space.</span></span><span class="mask" style="margin-top:6px"><span><b>Source:</b> Miami-Dade County Tax Collector, October 20, 2026.</span></span></div>
+  </div></div>
+</div>
+<script>
+/* ================================================================
+   DATA — every number on screen comes from here.
+   Source: Miami-Dade County Tax Collector, October 20, 2026.
+   ================================================================ */
+const STATS = [
+  { value:"137,016", n:137016, label:"Applications reviewed" },
+  { value:"8,517",   n:8517,   label:"Failed final audit" },
+  { value:"6,169",   n:6169,   label:"Permits canceled" },
+  { value:"670",     n:670,    label:"Suspected fraud cases referred to sheriff" },
+];
+const PER_SPACE = 100;
+const SPACES = STATS.map(s=>Math.round(s.n/PER_SPACE));   // 1370, 85, 62, 7
+const DURATION = 21;
+
+/* ---------------- easing ---------------- */
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+function spring(z=0.82,w=10){ const wd=w*Math.sqrt(1-z*z); const raw=x=>1-Math.exp(-z*w*x)*(Math.cos(wd*x)+(z*w/wd)*Math.sin(wd*x)); const e=raw(1); return x=>x<=0?0:x>=1?1:raw(x)/e; }
+function bezier(x1,y1,x2,y2){
+  const cx=3*x1,bx=3*(x2-x1)-cx,ax=1-cx-bx,cy=3*y1,by=3*(y2-y1)-cy,ay=1-cy-by;
+  const X=s=>((ax*s+bx)*s+cx)*s,Y=s=>((ay*s+by)*s+cy)*s,dX=s=>(3*ax*s+2*bx)*s+cx;
+  return x=>{ if(x<=0)return 0; if(x>=1)return 1; let s=x; for(let i=0;i<8;i++){const e=X(s)-x,d=dX(s); if(Math.abs(e)<1e-7||Math.abs(d)<1e-6)break; s-=e/d;}
+    let lo=0,hi=1; if(Math.abs(X(s)-x)>1e-5){s=x; for(let i=0;i<40;i++){ if(X(s)<x)lo=s; else hi=s; s=(lo+hi)/2; }} return Y(s); };
+}
+const OUT=bezier(0.16,1,0.3,1), INOUT=bezier(0.65,0,0.35,1), RISE=bezier(0.2,0.75,0.15,1);
+const CAM=bezier(0.55,0,0.18,1), DRIVE_IN=bezier(0.1,0.6,0.25,1), POP=spring(0.55,12), SNAP=spring(0.8,11);
+const seg=(t,t0,d,e)=>e(clamp((t-t0)/d));
+const lerp=(a,b,p)=>a+(b-a)*p;
+function rng(seed){ return ()=>{ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+/* ---------------- timeline (s) — paced to the VO ---------------- */
+const T = {
+  panelIn:0.15, title:0.45, carIn:0.7, carDur:1.7,
+  zoom:2.5, zoomDur:3.5, keyIn:5.6,
+  row:[3.6, 6.8, 10.0, 13.3],
+  ticket:6.7, ticketWave:1.5,
+  leave:9.9, leaveSpread:1.1, leaveDur:2.0,
+  sheriff:13.1, sheriffDur:1.9,
+};
+
+/* ---------------- lot geometry (world units = final screen px) ---------------- */
+const COLS=60, SW=18, SH=30, AISLE=20, LOT_X=720, LOT_Y=75, ROWS=23, LAST_ROW_STALLS=SPACES[0]-22*COLS;
+const rowTop = r => { const p=Math.floor(r/2); return LOT_Y + (p+1)*AISLE + p*2*SH + (r%2)*SH; };
+const aisleOf = r => (r%2===0) ? Math.floor(r/2) : Math.floor(r/2)+1;          // which aisle the stall opens onto
+const aisleY  = a => LOT_Y + a*(AISLE+2*SH) + AISLE/2;
+const LOT_W=COLS*SW, LOT_B=rowTop(ROWS-1)+SH;
+
+const PALETTE=[[233,233,229],[233,233,229],[38,40,43],[38,40,43],[92,96,102],[176,180,185],[176,180,185],[44,62,92],[128,40,38],[196,184,158],[79,104,140],[60,66,58]];
+const stalls=[];
+(function build(){
+  const r=rng(42);
+  for(let row=0;row<ROWS;row++){
+    const n = row===ROWS-1 ? LAST_ROW_STALLS : COLS;
+    for(let c=0;c<n;c++){
+      stalls.push({ row, c, x:LOT_X+c*SW, y:rowTop(row), up: row%2===1,  // up: nose points up (aisle below)
+        color:PALETTE[Math.floor(r()*PALETTE.length)], jitter:(r()-0.5)*1.6, ang:(r()-0.5)*0.05, stain:r()<0.35, stainA:r() });
+    }
+  }
+})();
+const HERO = stalls.findIndex(s=>s.row===11 && s.c===30);
+/* choose the flagged / canceled / referred spaces (deterministic) */
+const pick=(pool,n,seed)=>{ const r=rng(seed), a=pool.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a.slice(0,n); };
+const FLAGGED = pick(stalls.map((_,i)=>i).filter(i=>i!==HERO), SPACES[1], 7);
+const CANCELED = pick(FLAGGED, SPACES[2], 11);
+// referred: among the failed spaces, one per aisle so patrol cars never cross
+const REFERRED = (()=>{ const used=new Set(), out=[]; for(const i of pick(FLAGGED,FLAGGED.length,23)){ const a=aisleOf(stalls[i].row); if(!used.has(a)){ used.add(a); out.push(i); if(out.length===SPACES[3]) break; } } return out; })();
+FLAGGED.forEach((i,k)=>{ const s=stalls[i]; s.flag=true; s.flagT=T.ticket + T.ticketWave*((s.row/ROWS)*0.75 + (s.c/COLS)*0.25); });
+CANCELED.forEach(i=>{ const s=stalls[i]; s.cancel=true; s.leaveT=T.leave + T.leaveSpread*(1-s.c/COLS)*0.85 + (s.row%3)*0.05; });
+REFERRED.forEach((i,k)=>{ const s=stalls[i]; s.refer=true; s.patrolT=T.sheriff + k*0.12; });
+
+/* ---------------- camera: one continuous zoom from a single space to the whole lot ---------------- */
+const HS=()=>stalls[HERO];
+function camera(t){
+  const s=HS(), k0=21, cx=s.x+SW/2, cy=s.y+SH/2, sx=1300, sy=560;
+  const o0x=sx-k0*cx, o0y=sy-k0*cy;
+  const fx=-o0x/(k0-1), fy=-o0y/(k0-1);                       // fixed point of the zoom
+  const p=seg(t,T.zoom,T.zoomDur,CAM), r=Math.pow(1/k0,p);
+  return { K:k0*r, OX:fx*(1-r)+o0x*r, OY:fy*(1-r)+o0y*r };
+}
+
+/* ---------------- drawing ---------------- */
+const cv=document.getElementById('lot'), c=cv.getContext('2d');
+function roundRect(x,y,w,h,r){ c.beginPath(); c.roundRect(x,y,w,h,r); }
+function isa(x,y,sz,bg){ // painted International Symbol of Access, centred at x,y
+  c.save(); c.translate(x,y); const k=sz/60;
+  c.fillStyle=bg; c.fillRect(-30*k,-30*k,60*k,60*k);
+  c.fillStyle='#ECEBE6'; c.strokeStyle='#ECEBE6'; c.lineCap='round'; c.lineJoin='round';
+  c.beginPath(); c.arc(-6*k,-19*k,4.6*k,0,Math.PI*2); c.fill();
+  c.lineWidth=5*k; c.beginPath(); c.moveTo(-8*k,-10*k); c.lineTo(-5*k,6*k); c.lineTo(9*k,6*k); c.lineTo(15*k,20*k); c.stroke();
+  c.lineWidth=4*k; c.beginPath(); c.moveTo(-7*k,-3*k); c.lineTo(6*k,-4*k); c.stroke();
+  c.lineWidth=3.6*k; c.beginPath(); c.arc(-6*k,11*k,13*k,-0.25*Math.PI,1.18*Math.PI); c.stroke();
+  c.restore();
+}
+function car(x,y,ang,col,opts={}){
+  // generic sedan, top-down, nose toward -y in local space; 12.6 x 24 world units
+  c.save(); c.translate(x,y); c.rotate(ang);
+  const W=12.6, L=24;
+  if(opts.mute>0) col=col.map((v,i)=>v+([70,72,76][i]-v)*0.8*opts.mute);
+  c.fillStyle='rgba(0,0,0,.28)'; roundRect(-W/2+1.1,-L/2+1.3,W,L,3.6); c.fill();             // shadow (sun upper-left)
+  const shade=(k)=>`rgb(${col.map(v=>Math.max(0,Math.min(255,v*k))|0)})`;
+  if(opts.patrol){ col=[240,240,236]; }
+  c.fillStyle=shade(1); roundRect(-W/2,-L/2,W,L,3.6); c.fill();
+  c.fillStyle=shade(0.86); roundRect(-W/2,-L/2+L*0.66,W,L*0.34,[0,0,3.6,3.6]); c.fill();       // trunk side shade
+  // glass
+  c.fillStyle= opts.mute>0 ? `rgb(${[38,44,51].map((v,i)=>(v+([62,64,68][i]-v)*0.8*opts.mute)|0)})` : '#262C33';
+  c.beginPath(); c.moveTo(-W/2+1.3,-L/2+6.4); c.lineTo(W/2-1.3,-L/2+6.4); c.lineTo(W/2-2.2,-L/2+10.2); c.lineTo(-W/2+2.2,-L/2+10.2); c.closePath(); c.fill();
+  c.beginPath(); c.moveTo(-W/2+2.0,L/2-5.6); c.lineTo(W/2-2.0,L/2-5.6); c.lineTo(W/2-1.4,L/2-3.0); c.lineTo(-W/2+1.4,L/2-3.0); c.closePath(); c.fill();
+  c.fillStyle='rgba(255,255,255,.16)'; c.beginPath(); c.moveTo(-W/2+2.2,-L/2+6.9); c.lineTo(-W/2+5,-L/2+6.9); c.lineTo(-W/2+3.4,-L/2+9.6); c.lineTo(-W/2+2.6,-L/2+9.6); c.closePath(); c.fill();
+  // roof
+  c.fillStyle=shade(opts.patrol?0.97:1.07); roundRect(-W/2+1.9,-L/2+10.2,W-3.8,L*0.36,1.6); c.fill();
+  // mirrors
+  c.fillStyle=shade(0.8); c.fillRect(-W/2-1.1,-L/2+7.2,1.3,1.6); c.fillRect(W/2-0.2,-L/2+7.2,1.3,1.6);
+  if(opts.placard){ c.fillStyle='#1E4E9E'; c.fillRect(-0.5,-L/2+7.0,1.0,1.9); }
+  if(opts.patrol){
+    c.fillStyle='#1E5A3A'; c.fillRect(-W/2,-L/2+4,1.2,L-8); c.fillRect(W/2-1.2,-L/2+4,1.2,L-8);  // green side stripes
+    c.fillStyle='#1A1C1F'; c.fillRect(-W/2+1.5,-L/2-0.6,W-3,1.4);                               // push bar
+    const ph=Math.floor(opts.t*4)%2;
+    c.fillStyle= ph? '#E2342B' : '#5A1512'; c.fillRect(-W/2+2,-L/2+13.5,(W-4)/2,1.8);
+    c.fillStyle= ph? '#0E2C6E' : '#2F6BFF'; c.fillRect(0,-L/2+13.5,(W-4)/2,1.8);
+  }
+  if(opts.ticket>0){                                                                           // citation tucked under the wiper
+    c.save(); c.translate(2.2,-L/2+5.4); c.rotate(-0.12); c.scale(opts.ticket,opts.ticket);
+    c.fillStyle='#E9B526'; c.fillRect(-2.6,-1.6,5.2,3.2); c.fillStyle='rgba(60,40,0,.55)'; c.fillRect(-1.8,-0.6,3.6,0.45); c.fillRect(-1.8,0.4,2.4,0.45);
+    c.restore();
+  }
+  c.restore();
+}
+function tree(x,y,r){
+  c.fillStyle='rgba(0,0,0,.22)'; c.beginPath(); c.arc(x+r*0.25,y+r*0.3,r,0,Math.PI*2); c.fill();
+  c.fillStyle='#4F6B33'; c.beginPath(); c.arc(x,y,r,0,Math.PI*2); c.fill();
+  c.fillStyle='#62803F'; c.beginPath(); c.arc(x-r*0.25,y-r*0.25,r*0.62,0,Math.PI*2); c.fill();
+}
+
+function drawLot(t){
+  const cam=camera(t);
+  c.setTransform(2,0,0,2,0,0);
+  c.fillStyle='#66734F'; c.fillRect(0,0,1920,1080);                                   // grass verge
+  c.setTransform(2*cam.K,0,0,2*cam.K,2*cam.OX,2*cam.OY);
+  const vx0=(0-cam.OX)/cam.K, vx1=(1920-cam.OX)/cam.K, vy0=(0-cam.OY)/cam.K, vy1=(1080-cam.OY)/cam.K;
+  const vis=(x,y,w,h)=> x+w>vx0 && x<vx1 && y+h>vy0 && y<vy1;
+  // asphalt + curb
+  c.fillStyle='#D9B23A'; roundRect(LOT_X-26,LOT_Y-6,LOT_W+52,LOT_B-LOT_Y+12,10); c.fill();
+  c.fillStyle='#3B3D40'; roundRect(LOT_X-22,LOT_Y-2,LOT_W+44,LOT_B-LOT_Y+4,8); c.fill();
+  // subtle surface wear in the aisles
+  for(let a=0;a<=11;a++){ const y=aisleY(a); if(!vis(LOT_X,y-6,LOT_W,12)) continue;
+    c.fillStyle='rgba(0,0,0,.10)'; c.fillRect(LOT_X,y-4.5,LOT_W,2.2); c.fillRect(LOT_X,y+2.3,LOT_W,2.2); }
+  // landscaped islands at row ends + the unused end of the last row
+  for(let p=0;p<12;p++){ const y=rowTop(p*2), h=(p<11?2*SH:SH);
+    for(const x of [LOT_X-20, LOT_X+LOT_W+2]){ if(!vis(x,y,18,h)) continue;
+      c.fillStyle='#E1DED4'; roundRect(x,y+1,18,h-2,6); c.fill(); c.fillStyle='#6E7F49'; roundRect(x+2,y+3,14,h-6,5); c.fill();
+      if(p%2===0) tree(x+9,y+h/2,9.5); } }
+  { const y=rowTop(ROWS-1), x=LOT_X+LAST_ROW_STALLS*SW+3, w=(COLS-LAST_ROW_STALLS)*SW-6;
+    c.fillStyle='#E1DED4'; roundRect(x,y+2,w,SH-4,6); c.fill(); c.fillStyle='#6E7F49'; roundRect(x+2,y+4,w-4,SH-8,5); c.fill();
+    for(let k=0;k<4;k++) tree(x+18+k*(w-36)/3,y+SH/2,10); }
+
+  // stall paint
+  const lw=1.15, m=seg(t,T.ticket-0.25,0.9,INOUT);
+  const paint=`rgb(${[47,107,193].map((v,i)=>(v+([64,76,98][i]-v)*m*0.85)|0)})`;
+  for(const s of stalls){
+    if(!vis(s.x-2,s.y-2,SW+4,SH+4)) continue;
+    if(s.stain){ c.fillStyle=`rgba(0,0,0,${0.08+0.08*s.stainA})`; c.beginPath(); c.ellipse(s.x+SW/2,s.y+SH*(s.up?0.42:0.58),3.2,5,0,0,Math.PI*2); c.fill(); }
+    c.fillStyle=paint;
+    c.fillRect(s.x-lw/2,s.y,lw,SH); if(s.c===COLS-1 || (s.row===ROWS-1 && s.c===LAST_ROW_STALLS-1)) c.fillRect(s.x+SW-lw/2,s.y,lw,SH);
+    // back line (shared between back-to-back rows)
+    if(s.up) c.fillRect(s.x,s.y-lw/2,SW,lw); else c.fillRect(s.x,s.y+SH-lw/2,SW,lw);
+  }
+  // per-stall state
+  for(const s of stalls){
+    if(!vis(s.x-30,s.y-30,SW+60,SH+60) && !(s.cancel&&t>s.leaveT) && !s.refer) continue;
+    const empty = (s===HS() && t<T.carIn+T.carDur*0.8) || (s.cancel && t>s.leaveT+0.55);
+    if(empty && !s.flag) isa(s.x+SW/2, s.y+SH*(s.up?0.62:0.38), 10.5, '#2F6BC1');
+    // stall outline accents
+    if(s.flag && t>s.flagT){
+      const fp=seg(t,s.flagT,0.4,OUT), vp=s.cancel? seg(t,s.leaveT+0.7,0.6,OUT):0;
+      const gp=POP(clamp((t-s.flagT)/0.5));
+      c.fillStyle= vp>0 ? '#5B2721' : '#C99A1E';
+      c.fillRect(s.x+SW/2-(SW/2-1.2)*gp, s.y+SH/2-(SH/2-1.2)*gp, (SW-2.4)*gp, (SH-2.4)*gp);
+      if(empty) isa(s.x+SW/2, s.y+SH*(s.up?0.62:0.38), 10.5, '#2F6BC1');
+      c.strokeStyle= vp>0 ? '#C23A2C' : '#E9B526'; c.lineWidth=1.5;
+      const inset=0.9; c.beginPath(); c.rect(s.x+inset,s.y+inset,SW-2*inset,SH-2*inset);
+      c.setLineDash([ (SW+SH)*2*fp, 999 ]); c.stroke(); c.setLineDash([]);
+      if(vp>0){ // red X painted across the vacated space
+        c.strokeStyle='#C23A2C'; c.lineWidth=1.9; c.lineCap='round';
+        const a=clamp(vp*2), b=clamp(vp*2-1);
+        c.beginPath(); c.moveTo(s.x+3,s.y+4); c.lineTo(s.x+3+(SW-6)*a,s.y+4+(SH-8)*a); c.stroke();
+        if(b>0){ c.beginPath(); c.moveTo(s.x+SW-3,s.y+4); c.lineTo(s.x+SW-3-(SW-6)*b,s.y+4+(SH-8)*b); c.stroke(); }
+      }
+    }
+  }
+  // parked + departing cars
+  const glow=[];
+  for(const [i,s] of stalls.entries()){
+    const cx=s.x+SW/2+s.jitter*0.5, cy=s.y+SH/2, base=s.up?0:Math.PI;
+    let x=cx, y=cy, ang=base+s.ang;
+    if(i===HERO){                                            // the opening car pulls in from the aisle
+      const p=seg(t,T.carIn,T.carDur,DRIVE_IN); y=lerp(cy+46,cy,p); x=lerp(cx+1.5,cx,p); ang=base+lerp(0.08,s.ang,p);
+    }
+    if(s.cancel && t>s.leaveT){
+      const u=(t-s.leaveT)/T.leaveDur, ay=aisleY(aisleOf(s.row));
+      const b=clamp(u/0.42), bE=INOUT(b);                      // back out, swinging to face right
+      const sideY = cy + (ay-cy)*bE;
+      const turn = (s.up? 1 : -1) * (Math.PI/2) * bE;
+      x=cx + 4*bE; y=sideY; ang=base+turn;
+      if(u>0.42){ const d=(u-0.42)/0.58; x+= 1300*d*d; }       // pull away down the aisle
+      if(x>2100) continue;
+    }
+    if(!vis(x-16,y-16,32,32)) continue;
+    const tk = s.flag ? POP(clamp((t-s.flagT)/0.45)) : 0;
+    const mute = s.flag ? 0 : seg(t,T.ticket-0.25,0.9,INOUT);       // the rest of the lot steps back so the failed spaces read
+    car(x,y,ang,s.color,{ticket:tk, placard:true, mute});
+  }
+  // sheriff's patrol cars arrive down the aisles and stop behind their space
+  for(const s of stalls) if(s.refer && t>s.patrolT){
+    const ay=aisleY(aisleOf(s.row)), tx=s.x+SW/2;
+    const p=seg(t,s.patrolT,T.sheriffDur,bezier(0.2,0.6,0.25,1));
+    const x=lerp(LOT_X+LOT_W+520,tx,p);
+    const rp=seg(t,s.patrolT+T.sheriffDur*0.7,0.8,OUT);
+    if(rp>0){ c.strokeStyle='#D2A945'; c.lineWidth=2.2; c.beginPath(); c.arc(tx,(ay+s.y+SH/2)/2,27,-Math.PI/2,-Math.PI/2+Math.PI*2*rp); c.stroke(); }
+    car(x,ay,-Math.PI/2,[240,240,236],{patrol:true,t});
+    if(p>0.2) glow.push([x,ay,(Math.floor(t*4)%2)]);
+  }
+  c.save(); c.globalCompositeOperation='lighter';
+  for(const [x,y,ph] of glow){
+    const col= ph? [226,52,43] : [47,107,255];
+    for(const dx of [-3,3]){ const g=c.createRadialGradient(x+dx,y,0,x+dx,y,19); g.addColorStop(0,`rgba(${col},.45)`); g.addColorStop(1,`rgba(${col},0)`); c.fillStyle=g; c.fillRect(x+dx-19,y-19,38,38); }
+  }
+  c.restore();
+}
+
+/* ---------------- legend panel ---------------- */
+const ICONS=[
+  `<svg viewBox="0 0 56 56"><rect width="56" height="56" rx="6" fill="#1F5FAE"/><g fill="none" stroke="#F3F0E8" stroke-linecap="round" stroke-linejoin="round"><circle cx="24" cy="12.5" r="3.6" fill="#F3F0E8" stroke="none"/><path d="M22.3 19.5l2.4 12.5h11l4.7 11" stroke-width="4"/><path d="M23 25h10" stroke-width="3.3"/><path d="M30.6 41.2A10.4 10.4 0 1 1 18.2 27" stroke-width="3"/></g></svg>`,
+  `<svg viewBox="0 0 56 56"><rect x="8" y="4" width="40" height="48" rx="3" fill="#E9B526"/><rect x="14" y="12" width="28" height="3.4" rx="1.4" fill="#5B4307"/><rect x="14" y="21" width="20" height="3" rx="1.4" fill="#7E6420"/><rect x="14" y="29" width="24" height="3" rx="1.4" fill="#7E6420"/><rect x="14" y="39" width="12" height="6" rx="1.4" fill="#5B4307"/></svg>`,
+  `<svg viewBox="0 0 56 56"><rect x="10" y="3" width="36" height="50" rx="2" fill="#3B3D40"/><rect x="11.5" y="4.5" width="33" height="47" fill="none" stroke="#C23A2C" stroke-width="3"/><path d="M17 11l22 34M39 11L17 45" stroke="#C23A2C" stroke-width="4.4" stroke-linecap="round"/></svg>`,
+  `<svg viewBox="0 0 56 56"><circle cx="28" cy="28" r="26" fill="#A9802F"/><circle cx="28" cy="28" r="21.5" fill="none" stroke="#F3E3B6" stroke-width="1.6"/><path d="M28 10.5l4.9 10.6 11.6 1.4-8.6 7.9 2.3 11.5L28 36.2l-10.2 5.7 2.3-11.5-8.6-7.9 11.6-1.4z" fill="#F3E3B6"/></svg>`
+];
+const ROW_Y=[318,462,606,750];
+const rowsEl=document.getElementById('rows');
+const rows=STATS.map((s,i)=>{
+  const el=document.createElement('div'); el.className='row'; el.style.top=ROW_Y[i]+'px';
+  el.innerHTML=`<div class="icon">${ICONS[i]}</div><div class="num"></div><div class="lab mask"><span>${s.label}</span></div>`;
+  rowsEl.appendChild(el);
+  const num=el.querySelector('.num');
+  const cols=[...s.value].map(ch=>{
+    const win=document.createElement('div'); win.className='win';
+    const mw=document.createElement('div'); mw.className='mwrap';
+    const strip=document.createElement('div'); strip.className='strip';
+    const cells=[' ',ch]; strip.innerHTML=cells.map(x=>`<div>${x}</div>`).join('');
+    mw.appendChild(strip); win.appendChild(mw); num.appendChild(win);
+    return {ch,win,strip,cells};
+  });
+  return {el, icon:el.querySelector('.icon'), lab:el.querySelector('.lab span'), cols};
+});
+const BAR_COL=['#1F5FAE','#E9B526','#C23A2C','#A9802F'];
+const $=s=>document.querySelector(s);
+function measure(){
+  rows.forEach(r=>r.cols.forEach(col=>{ const p=document.createElement('span'); p.style.cssText='position:absolute;visibility:hidden;font:600 64px GDisplay;white-space:pre'; p.textContent=col.ch; document.body.appendChild(p); col.w=p.getBoundingClientRect().width-64*0.015; p.remove(); col.win.style.width=col.w+'px'; }));
+}
+function rise(el,t,t0,d=1.0){ el.style.transform=`translateY(${(1-seg(t,t0,d,OUT))*140}%)`; }
+
+function render(t){
+  drawLot(t);
+  $('#panel').style.transform=`translateX(${-(1-seg(t,T.panelIn,1.0,SNAP))*700}px)`;
+  rise($('#eyebrow > span'),t,T.title);
+  document.querySelectorAll('#title > .mask > span').forEach((e,i)=>rise(e,t,T.title+0.12+i*0.1));
+  $('#rule').style.transform=`scaleX(${seg(t,T.title+0.4,1.0,OUT)})`;
+  rows.forEach((r,i)=>{
+    const t0=T.row[i];
+    r.icon.style.transform=`scale(${POP(clamp((t-t0)/0.7))})`;
+    r.cols.forEach((col,j)=>{ const p=RISE(clamp((t-(t0+0.15+j*0.055))/1.0)); col.pos=p; col.strip.style.transform=`translateY(${6+(70-96)/2-p*96}px)`; });
+    rise(r.lab,t,t0+0.45);
+  });
+  // active-row marker slides from row to row
+  let y=ROW_Y[0], h=0, col=BAR_COL[0];
+  const grow=seg(t,T.row[0],0.6,OUT); h=lerp(0,64,grow);
+  for(let i=1;i<4;i++){ const p=seg(t,T.row[i]-0.05,0.75,SNAP); y=lerp(y,ROW_Y[i],p); if(p>0.5) col=BAR_COL[i]; }
+  const endP=seg(t,16.6,0.8,INOUT);
+  const bar=$('#bar'); bar.style.top=(y+8+lerp(0,0,endP))+'px'; bar.style.height=lerp(h,0.001,endP)*1+'px'; bar.style.background=col;
+  document.querySelectorAll('#foot .mask > span').forEach((e,i)=>rise(e,t,T.keyIn+0.2+i*0.12));
+  const kp=seg(t,T.keyIn,0.9,OUT); $('#key').style.clipPath=`inset(0 ${(1-kp)*100}% 0 0 round 8px)`;
+}
+
+window.ready=(async()=>{
+  await Promise.all([document.fonts.load('600 64px GDisplay'),document.fonts.load('500 22px GText'),document.fonts.load('600 17px GText'),document.fonts.load('600 54px GSerif')]);
+  await document.fonts.ready; measure(); render(0); return true;
+})();
+window.render=render;
+window.__data={STATS,SPACES,stalls,FLAGGED,CANCELED,REFERRED,HERO,rows,T,DURATION,PER_SPACE,aisleOf};
+const q=new URLSearchParams(location.search);
+if(!q.has('capture')) window.ready.then(()=>{ if(q.has('t')){render(+q.get('t'));return;} const t0=performance.now(); const loop=n=>{render(((n-t0)/1000)%(DURATION+1)); requestAnimationFrame(loop);}; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
