@@ -39,8 +39,8 @@ const STATS = [
   { value:"6,169",   n:6169,   label:["PERMITS CANCELED"],                             paint:[212,64,48] },
   { value:"670",     n:670,    label:["SUSPECTED FRAUD CASES","REFERRED TO SHERIFF"],   paint:[214,172,74] },
 ];
-const PER_SPACE=100, SPACES=STATS.map(s=>Math.round(s.n/PER_SPACE));   // 1370, 85, 62, 7
 const DURATION=7;
+const PER_SPACE=100, SPACES=STATS.map(s=>Math.round(s.n/PER_SPACE));   // 1370, 85, 62, 7
 
 /* ---------------- easing / helpers ---------------- */
 const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
@@ -60,12 +60,11 @@ function rng(seed){ return ()=>{ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imu
 
 /* ---------------- timeline — paced to the VO ---------------- */
 const T={ heroIn:-10, heroDur:2.4, paint:[0.25,1.7,3.0,4.2], paintDur:0.75,
-  ticket:1.3, ticketWave:1.0, leave:2.5, leaveSpread:0.8, pins:4.0, pinSpread:0.8, bug:0.1, src:5.0 };
+  ticket:1.2, ticketWave:0.9, leave:1.75, leaveSpread:0.8, pins:4.0, pinSpread:0.8, bug:0.1, src:5.0 };
 
 /* ================================================================
    THE LOT — real-world metres. x across, y into the lot, z up.
    ================================================================ */
-const VMAX=9, ACC=3;
 const SW=2.7, SD=5.5, AISLE=7.2, COLS=98, ROWS=14, LAST=SPACES[0]-(ROWS-1)*COLS;   // 13 x 98 + 96 = 1370
 const rowY0=r=>{ const p=Math.floor(r/2); return (p+1)*AISLE + p*2*SD + (r%2)*SD; };
 const aisleOf=r=> r%2===0 ? Math.floor(r/2) : Math.floor(r/2)+1;
@@ -82,41 +81,69 @@ const stalls=[];
 const HERO=stalls.findIndex(s=>s.row===0&&s.c===11);
 const pick=(pool,n,seed)=>{ const r=rng(seed),a=pool.slice(); for(let i=a.length-1;i>0;i--){const j=Math.floor(r()*(i+1)); [a[i],a[j]]=[a[j],a[i]];} return a.slice(0,n); };
 const FLAGGED=pick(stalls.map((_,i)=>i).filter(i=>i!==HERO),SPACES[1],7);
-const CANCELED=pick(FLAGGED,SPACES[2],11);
+// which 62 of the 85 are canceled is illustrative; spread them along each aisle the way they would be in a real lot
+const CANCELED=(()=>{ const out=[]; for(const minGap of [13,11,9,7,5,0]){ for(const i of pick(FLAGGED,FLAGGED.length,11)){ if(out.length===SPACES[2]) break; if(out.includes(i)) continue;
+    const s=stalls[i]; if(out.every(j=>{ const o=stalls[j]; return aisleOf(o.row)!==aisleOf(s.row) || Math.abs(o.x-s.x)>=minGap; })) out.push(i); } if(out.length===SPACES[2]) break; } return out; })();
 const REFERRED=pick(FLAGGED,SPACES[3],23);
 FLAGGED.forEach(i=>{ const s=stalls[i]; s.flag=true; s.flagT=T.ticket+T.ticketWave*(s.x/LOT_W)+0.08*(s.row%3); });
-// canceled cars back out and leave by the nearer end of their aisle; nearer cars go first so nobody catches up
-CANCELED.forEach(i=>{ const s=stalls[i]; s.cancel=true; s.dir = s.x < LOT_W/2 ? -1 : 1; s.toEnd = s.dir<0 ? s.x : LOT_W-s.x; });
+// canceled cars back out and leave by the nearer end of their aisle
+CANCELED.forEach(i=>{ const s=stalls[i]; s.cancel=true; s.jx=0; s.jh=0; s.dir = s.x < LOT_W/2 ? -1 : 1; s.toEnd = s.dir<0 ? s.x : LOT_W-s.x; });
 CANCELED.forEach(i=>{ const s=stalls[i]; s.leaveT = T.leave + T.leaveSpread*(s.toEnd/(LOT_W/2)); });
-// keep a car length between cars sharing an aisle: a car waits until the one ahead has pulled clear
-(function(){ const groups={}; CANCELED.forEach(i=>{ const s=stalls[i], k=s.aisle+':'+s.dir; (groups[k]=groups[k]||[]).push(s); });
-  const GAP=6.5, back=0.95, travel=d=> d<=VMAX*VMAX/(2*ACC) ? Math.sqrt(2*d/ACC) : VMAX/ACC + (d-VMAX*VMAX/(2*ACC))/VMAX;
-  for(const g of Object.values(groups)){ g.sort((a,b)=>a.toEnd-b.toEnd);
-    // nobody starts before a car ahead of them in the same lane; close neighbours wait until it has pulled clear
-    for(let k=1;k<g.length;k++) for(let j=0;j<k;j++){ const dx=Math.abs(g[k].toEnd-g[j].toEnd); g[k].leaveT=Math.max(g[k].leaveT, g[j].leaveT + (dx<GAP ? back+travel(GAP-dx)+0.15 : 0)); } } })();
 REFERRED.slice().sort((a,b)=>stalls[a].x-stalls[b].x).forEach((i,k)=>{ const s=stalls[i]; s.refer=true; s.pinT=T.pins+T.pinSpread*k/(SPACES[3]-1); });
 
-/* where a departing car is at time t (null once it is well away) */
-function departPose(s,t){
-  const u=t-s.leaveT; if(u<0) return null;
-  const ay=aisleY(s.aisle), back=0.95;
-  const exitH = s.dir>0 ? Math.PI/2 : -Math.PI/2;           // heading +x or -x
-  if(u<back){ const p=INOUT(u/back);
-    // reverse out to the aisle centre, swinging the nose toward the exit
-    const turn = (s.h===0 ? 1 : -1) * (s.dir>0 ? 1 : -1);
-    let h=s.h; let target = exitH; let dh=((target-h+Math.PI*3)%(Math.PI*2))-Math.PI;
-    return { x:s.x + s.dir*1.2*p, y:lerp(s.y,ay,p), h:h+dh*p };
-  }
-  const v=u-back, d = v<VMAX/ACC ? 0.5*ACC*v*v : (VMAX*VMAX)/(2*ACC) + VMAX*(v-VMAX/ACC);
-  const x0=s.x+s.dir*1.2, aisleLen = s.dir>0 ? (LOT_W+6)-x0 : x0+6;
-  if(d<aisleLen) return { x:x0+s.dir*d, y:ay, h:exitH };
-  // turn onto the perimeter road and head out past the front of the lot
-  const R=4, arc=Math.PI/2*R, e=d-aisleLen;
-  const cx= s.dir>0 ? LOT_W+6 : -6;
-  if(e<arc){ const a=e/R; return { x:cx+s.dir*R*Math.sin(a), y:ay-R*(1-Math.cos(a)), h:exitH + (s.dir>0?1:-1)*a }; }
-  const y=ay-R-(e-arc); if(y<-260) return null;
-  return { x:cx+s.dir*R, y, h:Math.PI };
+/* ---------------- departures: real car kinematics, no sideways slip ----------------
+   A car pivots on its rear axle. It backs straight out, turns on a 3.5 m radius (rear axle),
+   stops to shift, then pulls forward, easing back to the middle of the lane. Geometry was solved
+   so the swinging nose clears the neighbouring cars (~0.29 m) and the row across the aisle. */
+const KIN={ AX:-1.35, A:4.2, R:3.5, REV:3.2, PAUSE:0.35, ACC:2.4, VMAX:7.5, BLEND:11, R2:5.0 };
+const FV=h=>[Math.sin(h),Math.cos(h)];
+const fwdDist=v=> v<=0?0 : (v<KIN.VMAX/KIN.ACC ? 0.5*KIN.ACC*v*v : KIN.VMAX*KIN.VMAX/(2*KIN.ACC)+KIN.VMAX*(v-KIN.VMAX/KIN.ACC));
+function obb(x,y,h,l=4.6,w=1.86){ const f=FV(h), r=[Math.cos(h),-Math.sin(h)];
+  return [[l/2,w/2],[l/2,-w/2],[-l/2,-w/2],[-l/2,w/2]].map(([a,b])=>[x+f[0]*a+r[0]*b, y+f[1]*a+r[1]*b]); }
+function sep(A,B){ let m=1e9; for(const P of [A,B]) for(let i=0;i<4;i++){ const a=P[i], b=P[(i+1)%4]; let n=[b[1]-a[1], a[0]-b[0]]; const l=Math.hypot(n[0],n[1]); n=[n[0]/l,n[1]/l];
+  const pa=A.map(q=>q[0]*n[0]+q[1]*n[1]), pb=B.map(q=>q[0]*n[0]+q[1]*n[1]); m=Math.min(m, Math.min(Math.max(...pa)-Math.min(...pb), Math.max(...pb)-Math.min(...pa))); } return m; }  // >0 overlap
+function departSetup(s){
+  const h0=s.h, f0=FV(h0), exitH= s.dir>0 ? Math.PI/2 : -Math.PI/2;
+  let d=exitH-h0; d=Math.atan2(Math.sin(d),Math.cos(d)); const sg=Math.sign(d);
+  const a0=[s.x+f0[0]*KIN.AX, s.y+f0[1]*KIN.AX], aA=[a0[0]-f0[0]*KIN.A, a0[1]-f0[1]*KIN.A];
+  const a1=[aA[0]+KIN.R*(Math.cos(exitH)-Math.cos(h0))/sg, aA[1]-KIN.R*(Math.sin(exitH)-Math.sin(h0))/sg];
+  const xEnd= s.dir>0 ? LOT_W+6 : -6;
+  s.k={h0,f0,sg,exitH,a0,aA,a1,xEnd,ay:aisleY(s.aisle),Lr:KIN.A+KIN.R*Math.PI/2,run:Math.abs(xEnd-a1[0])};
 }
+function axlePose(s,u){                    // rear-axle position + heading at u seconds after the car starts to move
+  const k=s.k;
+  if(u<=0) return {ax:k.a0, h:k.h0, ph:'park'};
+  if(u<KIN.REV){ const sr=k.Lr*(1-Math.cos(Math.PI*u/KIN.REV))/2;
+    if(sr<=KIN.A) return {ax:[k.a0[0]-k.f0[0]*sr, k.a0[1]-k.f0[1]*sr], h:k.h0, ph:'rev', u};
+    const h=k.h0+k.sg*(sr-KIN.A)/KIN.R;
+    return {ax:[k.aA[0]+KIN.R*(Math.cos(h)-Math.cos(k.h0))/k.sg, k.aA[1]-KIN.R*(Math.sin(h)-Math.sin(k.h0))/k.sg], h, ph:'rev', u}; }
+  if(u<KIN.REV+KIN.PAUSE) return {ax:k.a1, h:k.exitH, ph:'stop'};
+  const d=fwdDist(u-KIN.REV-KIN.PAUSE), dir=s.dir;
+  if(d<k.run){ const B=Math.min(KIN.BLEND,k.run*0.85), q=clamp(d/B), sm=q*q*(3-2*q), dsm= q<1 ? 6*q*(1-q)/B : 0;
+    return {ax:[k.a1[0]+dir*d, k.a1[1]+(k.ay-k.a1[1])*sm], h:Math.atan2(dir,(k.ay-k.a1[1])*dsm), ph:'go'}; }
+  const R2=KIN.R2, arc=Math.PI/2*R2, e=d-k.run;
+  if(e<arc){ const a=e/R2; return {ax:[k.xEnd+dir*R2*Math.sin(a), k.ay-R2*(1-Math.cos(a))], h:k.exitH+dir*a, ph:'go'}; }
+  const y=k.ay-R2-(e-arc); if(y<-300) return null;
+  return {ax:[k.xEnd+dir*R2, y], h:Math.PI, ph:'go'};
+}
+function departPose(s,t){
+  const a=axlePose(s,t-s.leaveT); if(!a) return null;
+  const f=FV(a.h); return { x:a.ax[0]-f[0]*KIN.AX, y:a.ax[1]-f[1]*KIN.AX, h:a.h, ph:a.ph, u:a.u };
+}
+const poseAt=(s,t)=> s.cancel ? departPose(s,t) : {x:s.x+s.jx, y:s.y, h:s.h+s.jh};
+CANCELED.forEach(i=>departSetup(stalls[i]));
+// schedule: the ticket lands first; then nobody pulls out into another car's path (they wait their turn)
+(function(){ const order=CANCELED.map(i=>stalls[i]).sort((a,b)=>a.leaveT-b.leaveT), done=[];
+  for(const s of order){ s.leaveT=Math.max(s.leaveT, s.flagT+0.7);
+    for(let tries=0; tries<120; tries++){ let bad=false;
+      for(let t=s.leaveT; t<DURATION+1 && !bad; t+=0.06){ const p=departPose(s,t); if(!p) break; const A=obb(p.x,p.y,p.h,4.6+1.0,1.86+0.5);
+        for(const o of done){ const q=poseAt(o,t); if(!q || Math.abs(q.x-p.x)>8 || Math.abs(q.y-p.y)>8) continue; if(sep(A,obb(q.x,q.y,q.h))>0){ bad=true; break; } } }
+      if(!bad) break; s.leaveT+=0.1; }
+    done.push(s);
+    // the moment the car has fully cleared its space (the space is then shown empty)
+    const stall=obb(s.x,s.y,0,SD,SW); s.clearT=s.leaveT+KIN.REV;
+    for(let u=0; u<KIN.REV; u+=0.02){ const p=departPose(s,s.leaveT+u); if(sep(obb(p.x,p.y,p.h),stall)<-0.05){ s.clearT=s.leaveT+u; break; } }
+  } })();
 
 /* ================================================================
    CAMERA — one continuous drone move (time-aware Catmull-Rom through keys)
@@ -139,6 +166,7 @@ function heroPose(t){
   return {x:s.x, y:cy+(d-L1-L2), h:0};
 }
 function camAt(t){
+  if(window.__camOverride) return camFrom(...window.__camOverride);
   const K=KEYS; let i=0; while(i<K.length-2 && t>K[i+1][0]) i++;
   const k0=K[Math.max(0,i-1)], k1=K[i], k2=K[i+1], k3=K[Math.min(K.length-1,i+2)];
   const h=k2[0]-k1[0], s=clamp((t-k1[0])/h);
@@ -150,7 +178,10 @@ function camAt(t){
     const s2=s*s, s3=s2*s;
     out.push((2*s3-3*s2+1)*k1[j] + (s3-2*s2+s)*h*m1 + (-2*s3+3*s2)*k2[j] + (s3-s2)*h*m2);
   }
-  const [x,y,z,yawD,pitchD,f]=out, yaw=yawD*Math.PI/180, pit=pitchD*Math.PI/180;
+  return camFrom(...out);
+}
+function camFrom(x,y,z,yawD,pitchD,f){
+  const yaw=yawD*Math.PI/180, pit=pitchD*Math.PI/180;
   const fw=[Math.sin(yaw)*Math.cos(pit), Math.cos(yaw)*Math.cos(pit), -Math.sin(pit)];
   const rt=[Math.cos(yaw), -Math.sin(yaw), 0];
   const up=[Math.sin(yaw)*Math.sin(pit), Math.cos(yaw)*Math.sin(pit), Math.cos(pit)];
@@ -208,10 +239,10 @@ function drawTexOnGround(tex, x0, yTop, wM, hM, reveal=1, nu=16, nv=6){
       const ma=((s1[0]-s0[0])*(t2[1]-t0[1])-(s2[0]-s0[0])*(t1[1]-t0[1]))/den, mc=((s2[0]-s0[0])*(t1[0]-t0[0])-(s1[0]-s0[0])*(t2[0]-t0[0]))/den;
       const mb=((s1[1]-s0[1])*(t2[1]-t0[1])-(s2[1]-s0[1])*(t1[1]-t0[1]))/den, md=((s2[1]-s0[1])*(t1[0]-t0[0])-(s1[1]-s0[1])*(t2[0]-t0[0]))/den;
       const me=s0[0]-ma*t0[0]-mc*t0[1], mf=s0[1]-mb*t0[0]-md*t0[1];
-      const cxm=(s0[0]+s1[0]+s2[0])/3, cym=(s0[1]+s1[1]+s2[1])/3, grow=p=>{ const dx=p[0]-cxm, dy=p[1]-cym, l=Math.hypot(dx,dy)||1; return [p[0]+dx/l*0.7, p[1]+dy/l*0.7]; };
+      const cxm=(s0[0]+s1[0]+s2[0])/3, cym=(s0[1]+s1[1]+s2[1])/3, grow=p=>{ const dx=p[0]-cxm, dy=p[1]-cym, l=Math.hypot(dx,dy)||1; return [p[0]+dx/l*1.4, p[1]+dy/l*1.4]; };
       const q0=grow(s0),q1=grow(s1),q2=grow(s2);
       g.save(); g.beginPath(); g.moveTo(q0[0],q0[1]); g.lineTo(q1[0],q1[1]); g.lineTo(q2[0],q2[1]); g.closePath(); g.clip();
-      g.transform(ma,mb,mc,md,me,mf); g.drawImage(tex, u0, v0, u1-u0, v1-v0, u0, v0, u1-u0, v1-v0); g.restore();
+      g.transform(ma,mb,mc,md,me,mf); { const pd=6, sx=Math.max(0,u0-pd), sy=Math.max(0,v0-pd), ex=Math.min(umax,u1+pd), ey=Math.min(H,v1+pd); g.drawImage(tex, sx, sy, ex-sx, ey-sy, sx, sy, ex-sx, ey-sy); } g.restore();
     }
   }
 }
@@ -227,15 +258,21 @@ function makeISA(){ const cv=document.createElement('canvas'); cv.width=cv.heigh
 /* ---------------- scenery ---------------- */
 const TREES=[], POLES=[], CLOUDS=[];
 (function(){ const r=rng(9);
-  for(let p=0;p<7;p++){ const y=rowY0(p*2)+SD; TREES.push([-4.2,y,3.2+r()*0.8]); TREES.push([LOT_W+4.2,y,3.2+r()*0.8]); POLES.push([-4.2,y-3.8]); POLES.push([LOT_W+4.2,y+3.8]); }
-  for(let x=-30;x<=LOT_W+30;x+=13+r()*5) TREES.push([x, LOT_D+9+r()*3, 3.4+r()*1.4]);
-  for(let x=-30;x<=LOT_W+30;x+=14+r()*6) if(x<60||x>205) TREES.push([x, APRON_Y0-7-r()*3, 3.2+r()*1.4]);
-  for(let y=-50;y<=LOT_D;y+=15+r()*6){ TREES.push([-24-r()*4,y,3.4+r()*1.2]); TREES.push([LOT_W+24+r()*4,y,3.4+r()*1.2]); }
+  const oak=(x,y,rr)=>{ const n=4+Math.floor(r()*2), blobs=[]; for(let i=0;i<n;i++){ const a=r()*Math.PI*2, d=rr*0.45*r(); blobs.push([Math.cos(a)*d, Math.sin(a)*d, rr*(1.55+r()*0.5), rr*(0.55+r()*0.25)]); }
+    TREES.push({kind:'oak',x,y,r:rr,blobs,tone:r()}); };
+  const palm=(x,y)=>{ const n=9+Math.floor(r()*3), fr=[]; for(let i=0;i<n;i++) fr.push([i/n*Math.PI*2+r()*0.4, 2.6+r()*0.9, 0.12+r()*0.08]);
+    TREES.push({kind:'palm',x,y,r:2.2,h:7.5+r()*2.2,lean:[(r()-0.5)*1.2,(r()-0.5)*1.2],fr}); };
+  for(let p=0;p<7;p++){ const y=rowY0(p*2)+SD; oak(-4.2,y,3.0+r()*0.8); oak(LOT_W+4.2,y,3.0+r()*0.8); POLES.push([-4.2,y-3.8]); POLES.push([LOT_W+4.2,y+3.8]); }
+  for(let x=-30;x<=LOT_W+30;x+=13+r()*5) oak(x, LOT_D+9+r()*3, 3.4+r()*1.4);
+  for(let x=-30;x<=LOT_W+30;x+=11+r()*4) if(x<60||x>205) (r()<0.6 ? palm(x, APRON_Y0-7-r()*2) : oak(x, APRON_Y0-7-r()*3, 3.2+r()*1.2));
+  for(let y=-50;y<=LOT_D;y+=13+r()*5){ for(const x of [-24-r()*4, LOT_W+24+r()*4]) (r()<0.45 ? palm(x,y) : oak(x,y,3.4+r()*1.2)); }
   for(let x=20;x<LOT_W;x+=60) POLES.push([x,-30]);
   for(let i=0;i<4;i++) CLOUDS.push([r()*400-100, r()*260-80, 34+r()*30]);
 })();
+const PATCHES=[]; (function(){ const r=rng(77); for(let i=0;i<34;i++){ const a=Math.floor(r()*8), x=r()*(LOT_W-30), w=6+r()*22; PATCHES.push([x,aisleY(a)-3.2+r()*3,x+w,aisleY(a)-0.4+r()*3.2, r()<0.5?'#424447':'#4B4D50']); } })();
 const SUN=[-0.42,-0.55,0.72];   // toward the sun
-const shadeK=n=>0.66+0.34*Math.max(0,n[0]*SUN[0]+n[1]*SUN[1]+n[2]*SUN[2]);
+const SUNL=Math.hypot(...SUN), SUNN=SUN.map(v=>v/SUNL);
+const shadeK=n=>0.58+0.42*Math.max(0,n[0]*SUNN[0]+n[1]*SUNN[1]+n[2]*SUNN[2]) + 0.06*Math.max(0,n[2]);
 const SHX=-SUN[0]/SUN[2], SHY=-SUN[1]/SUN[2];
 
 function drawGround(t){
@@ -246,8 +283,12 @@ function drawGround(t){
   poly(rect(0,APRON_Y0+1.5,LOT_W,-1.5),'#4A4C4F');                                      // apron (slightly fresher)
   poly(rect(0,-1.5,LOT_W,-1.2),'#ECEBE6');                                              // stop bar between apron and lot
   // islands at row ends + the unused end of the last row
-  for(let p=0;p<7;p++){ const y0=rowY0(p*2), y1=y0+2*SD; for(const x of [-6.6,LOT_W+1.8]){ poly(rect(x,y0+0.3,x+4.8,y1-0.3),'#D8D4C8'); poly(rect(x+0.5,y0+0.8,x+4.3,y1-0.8),'#6F8250'); } }
-  { const y0=rowY0(ROWS-1); poly(rect(LAST*SW+0.4,y0+0.3,LOT_W-0.4,y0+SD-0.3),'#D8D4C8'); poly(rect(LAST*SW+0.9,y0+0.8,LOT_W-0.9,y0+SD-0.8),'#6F8250'); }
+  // resurfacing patches and tyre wear in the aisles
+  for(const [x0,y0,x1,y1,c] of PATCHES) poly(rect(x0,y0,x1,y1,0.002),c);
+  for(let a=0;a<8;a++){ const y=aisleY(a); for(const o of [-1.15,1.15]) poly(rect(-6,y+o-0.42,LOT_W+6,y+o+0.42,0.003),'rgba(20,22,26,.10)'); }
+  // raised islands (15 cm curbs) at row ends + the unused end of the last row
+  for(let p=0;p<7;p++){ const y0=rowY0(p*2), y1=y0+2*SD; for(const x of [-6.6,LOT_W+1.8]) island(x,y0+0.3,x+4.8,y1-0.3); }
+  { const y0=rowY0(ROWS-1); island(LAST*SW+0.4,y0+0.3,LOT_W-0.4,y0+SD-0.3); }
   // stall paint (blue, muted once the audit wave starts so the flagged spaces read)
   const m=seg(t,T.ticket-0.3,1.0,INOUT), paint=rgb(mix([52,110,198],[78,88,108],m*0.8));
   for(let row=0;row<ROWS;row++){ const y0=rowY0(row), n=row===ROWS-1?LAST:COLS, lw=0.12;
@@ -261,16 +302,17 @@ function drawGround(t){
   for(const s of stalls){
     if(!s.flag || t<s.flagT) continue;
     const gp=POP(clamp((t-s.flagT)/0.5)), hw=(SW/2-0.15)*gp, hd=(SD/2-0.15)*gp;
-    const voided = s.cancel && t>s.leaveT+0.6;
+    const voided = s.cancel && t>s.clearT;
     poly(rect(s.x-hw,s.y-hd,s.x+hw,s.y+hd,0.005), voided ? '#6B2A23' : '#C9981F');
   }
   // painted access symbols where a space is empty
   for(const [i,s] of stalls.entries()){
-    const empty=(i===HERO && t<T.heroIn+T.heroDur) || (s.cancel && t>s.leaveT+0.6);
+    const empty=(i===HERO && t<T.heroIn+T.heroDur) || (s.cancel && t>s.clearT);
     if(!empty) continue;
     const yy= s.h===0 ? s.y-0.9 : s.y+0.9;
     drawTexOnGround(ISA, s.x-0.9, yy+0.9, 1.8, 1.8, 1, 1, 1);
-    if(s.cancel){ const vp=seg(t,s.leaveT+0.7,0.7,OUT), a=clamp(vp*2), b=clamp(vp*2-1);
+    if(s.cancel){ poly(ringPts(s.x+0.1,s.y+(s.h===0?0.6:-0.6),0.55,10,0.008),'rgba(18,14,10,.28)');   // oil stain left behind
+      const vp=seg(t,s.clearT+0.1,0.7,OUT), a=clamp(vp*2), b=clamp(vp*2-1);
       const L=(x0,y0,x1,y1,p)=>{ const x2=x0+(x1-x0)*p, y2=y0+(y1-y0)*p, nx=-(y1-y0), ny=x1-x0, l=Math.hypot(nx,ny), w=0.11; poly([[x0+nx/l*w,y0+ny/l*w,0.01],[x2+nx/l*w,y2+ny/l*w,0.01],[x2-nx/l*w,y2-ny/l*w,0.01],[x0-nx/l*w,y0-ny/l*w,0.01]],'#D44030'); };
       if(a>0) L(s.x-1.05,s.y-2.4,s.x+1.05,s.y+2.4,a); if(b>0) L(s.x+1.05,s.y-2.4,s.x-1.05,s.y+2.4,b); }
   }
@@ -297,48 +339,106 @@ function boxFaces(cx,cy,h,L0,L1,W0,W1,z0,z1,topScale=1){
 }
 const nrm=(a,b,c)=>{ const u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]], v=[c[0]-a[0],c[1]-a[1],c[2]-a[2]]; const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]]; const l=Math.hypot(...n)||1; return n.map(q=>q/l); };
 const facing=(face,n)=>{ const c=face.reduce((a,p)=>[a[0]+p[0]/face.length,a[1]+p[1]/face.length,a[2]+p[2]/face.length],[0,0,0]); return (CAM.x-c[0])*n[0]+(CAM.y-c[1])*n[1]+(CAM.z-c[2])*n[2] > 0; };
+function frustum(cx,cy,h,b,tp,z0,z1){   // b/tp = [l0,l1,w] bottom and top footprints
+  const f=FV(h), r=[Math.cos(h),-Math.sin(h)], P=(l,w,z)=>[cx+f[0]*l+r[0]*w, cy+f[1]*l+r[1]*w, z];
+  const B=[P(b[0],-b[2],z0),P(b[1],-b[2],z0),P(b[1],b[2],z0),P(b[0],b[2],z0)], T=[P(tp[0],-tp[2],z1),P(tp[1],-tp[2],z1),P(tp[1],tp[2],z1),P(tp[0],tp[2],z1)];
+  return { top:T, sides:[[B[0],B[1],T[1],T[0]],[B[1],B[2],T[2],T[1]],[B[2],B[3],T[3],T[2]],[B[3],B[0],T[0],T[3]]] };   // left, front, right, rear
+}
+const faceN=F=>nrm(F[0],F[1],F[2]).map(v=>-v);
+const lerp3=(a,b,p)=>[a[0]+(b[0]-a[0])*p, a[1]+(b[1]-a[1])*p, a[2]+(b[2]-a[2])*p];
+const SKY=[168,190,212], LIGHTS=[];
 function car(x,y,h,col,o){
-  const L=4.6, Wd=1.86, depth=toCam([x,y,1])[2]; if(depth<NEAR+1) return;
-  const pxLen=CAM.f*L/depth;
+  const depth=toCam([x,y,1])[2]; if(depth<NEAR+1) return;
+  const px=CAM.f*4.6/depth;
   if(o.mute>0) col=mix(col,[122,124,128],0.55*o.mute);
-  const shade=(n,k=1)=>rgb(col.map(v=>Math.min(255,v*shadeK(n)*k)));
-  if(pxLen<9){ const b=boxFaces(x,y,h,-L/2,L/2,-Wd/2,Wd/2,0.3,1.0); poly(b.top,shade([0,0,1])); return; }
-  // tyres / undercarriage
-  const u=boxFaces(x,y,h,-L/2+0.25,L/2-0.25,-Wd/2+0.04,Wd/2-0.04,0.0,0.42);
-  for(const s of u.sides){ const n=nrm(s[0],s[1],s[2]).map(v=>-v); if(facing(s,n)) poly(s,'#1C1D1F'); }
-  // body
-  const hb=o.suv?1.12:0.98, b=boxFaces(x,y,h,-L/2,L/2,-Wd/2,Wd/2,0.4,hb,0.96);
-  for(const s of b.sides){ const n=nrm(s[0],s[1],s[2]).map(v=>-v); if(facing(s,n)) poly(s,shade(n,0.92)); }
-  poly(b.top,shade([0,0,1]));
-  // cabin: glass sides, roof
-  const top=o.suv?1.72:1.44, cab=boxFaces(x,y,h,o.suv?-1.75:-1.35,o.suv?1.05:0.95,-0.8,0.8,hb,top,0.82);
-  const glass=o.mute>0 ? rgb(mix([34,40,48],[96,98,102],0.55*o.mute)) : '#222831';
-  for(const s of cab.sides){ const n=nrm(s[0],s[1],s[2]).map(v=>-v); if(facing(s,n)) poly(s,glass); }
-  poly(cab.top, o.patrol ? '#F4F4F0' : shade([0,0,1],1.05));
-  if(o.patrol){ const bar=boxFaces(x,y,h,-0.35,-0.1,-0.62,0.62,top,top+0.12); const ph=Math.floor(o.t*5)%2;
-    poly(boxFaces(x,y,h,-0.35,-0.1,-0.62,0,top,top+0.12).top, ph?'#E8392E':'#6B1A15'); poly(boxFaces(x,y,h,-0.35,-0.1,0,0.62,top,top+0.12).top, ph?'#163777':'#3A78FF'); }
-  if(o.ticket>0){ const k=o.ticket; const tk=boxFaces(x,y,h,0.95+0.05,0.95+0.05+0.42*k,-0.2*k,0.38*k,hb+0.01,hb+0.02); poly(tk.top,'#F2C230'); }
+  const sh=(n,k=1)=>rgb(col.map(v=>Math.min(255,v*shadeK(n)*k)));
+  const suv=o.suv, B0=0.30, B1=suv?0.98:0.80, f=FV(h), r=[Math.cos(h),-Math.sin(h)], P=(l,w,z)=>[x+f[0]*l+r[0]*w, y+f[1]*l+r[1]*w, z];
+  if(px<7){ poly(frustum(x,y,h,[-2.3,2.3,0.93],[-2.3,2.3,0.93],B0,B1).top, sh([0,0,1])); return; }
+  const detail=px>22;
+  if(detail) for(const lc of [-1.38,1.38]) for(const sd of [-1,1]){                        // tyres
+    const wb=frustum(x,y,h,[lc-0.33,lc+0.33,0.95],[lc-0.33,lc+0.33,0.95],0,0.62); const inner=frustum(x,y,h,[lc-0.33,lc+0.33,0.62],[lc-0.33,lc+0.33,0.62],0,0.62);
+    for(const F of wb.sides){ const n=faceN(F); if(facing(F,n) && Math.abs(n[2])<0.5){ const m=F.map(p=>[p[0],p[1],p[2]]); poly(m,'#151618'); } } }
+  // lower body: slightly tucked at the sills, tapered at the bumpers
+  const body=frustum(x,y,h,[-2.26,2.24,0.90],[-2.3,2.3,0.93],B0,B1-0.12), shoulder=frustum(x,y,h,[-2.3,2.3,0.93],[suv?-2.22:-2.18,suv?2.18:2.08,0.88],B1-0.12,B1);
+  for(const part of [body,shoulder]) part.sides.forEach((F,i)=>{ const n=faceN(F); if(!facing(F,n)) return; poly(F, sh(n, part===body?0.86:0.95));
+    if(detail && part===body){
+      const L=(l,w0,w1,z0,z1,c)=>{ for(const sgn of [-1,1]) poly([P(l,sgn*w0,z0),P(l,sgn*w1,z0),P(l,sgn*w1,z1),P(l,sgn*w0,z1)],c); };
+      if(i===3){ const tl=o.brake?'#FF4033':'#8C2019'; L(-2.27,0.5,0.86,B1-0.26,B1-0.13,tl); if(o.rev) L(-2.27,0.3,0.48,B1-0.26,B1-0.15,'#F6F3EA');
+        if(o.brake) LIGHTS.push([P(-2.35,0.68,B1-0.2),P(-2.35,-0.68,B1-0.2),[255,50,36],0.55]); if(o.rev) LIGHTS.push([P(-2.4,0.4,B1-0.2),P(-2.4,-0.4,B1-0.2),[255,250,235],0.5]); }
+      if(i===1){ L(2.27,0.52,0.86,B1-0.25,B1-0.14,'#E8E4D6'); poly([P(2.272,-0.42,B1-0.27),P(2.272,0.42,B1-0.27),P(2.272,0.42,B1-0.17),P(2.272,-0.42,B1-0.17)],'#1E2023'); }
+      if(i===0||i===2){ const sg=i===0?-1:1, w=sg*0.905; poly([P(-2.0,w,B0+0.06),P(2.0,w,B0+0.06),P(2.0,w,B0+0.1),P(-2.0,w,B0+0.1)],'rgba(0,0,0,.22)'); }   // sill line
+    } });
+  poly(shoulder.top, sh([0,0,1],1.0));
+  // hood seam
+  if(detail){ const hf=suv?1.15:1.0; poly([P(hf+0.05,-0.86,B1+0.002),P(hf+0.05,0.86,B1+0.002),P(hf+0.09,0.86,B1+0.002),P(hf+0.09,-0.86,B1+0.002)],'rgba(0,0,0,.18)'); }
+  // greenhouse: windscreen and rear glass raked, side glass with pillars
+  const top=suv?1.74:1.43, cab=frustum(x,y,h, suv?[-2.08,1.15,0.86]:[-1.32,1.0,0.84], suv?[-1.98,0.52,0.76]:[-0.9,0.3,0.70], B1, top);
+  cab.sides.forEach((F,i)=>{ const n=faceN(F); if(!facing(F,n)) return;
+    const refl=clamp(0.25+n[2]*0.9)*(o.mute>0?0.5:1), gl=mix(o.mute>0?[60,66,74]:[30,36,44], SKY, refl*0.55);
+    poly(F, rgb(gl));
+    if(detail && (i===0||i===2)){ // pillars on the side glass (bottom edge F[0]->F[1] runs rear->front)
+      const pil=suv?[0.36,0.70]:[0.52]; for(const q of pil){ const a=lerp3(F[0],F[1],q-0.03), b=lerp3(F[0],F[1],q+0.03), c=lerp3(F[3],F[2],q+0.025), d=lerp3(F[3],F[2],q-0.025); poly([a,b,c,d], sh(n,0.8)); }
+      poly([F[0],F[1],lerp3(F[1],F[2],0.12),lerp3(F[0],F[3],0.12)], sh(n,0.82)); }   // door frame under the glass
+    if(detail && i===1 && o.ticket>0){ const k=o.ticket, a=lerp3(F[0],F[1],0.58), b=lerp3(F[0],F[1],0.58+0.17*k), c=lerp3(lerp3(F[0],F[3],0.22*k),lerp3(F[1],F[2],0.22*k),0.58+0.17*k), d=lerp3(lerp3(F[0],F[3],0.22*k),lerp3(F[1],F[2],0.22*k),0.58); poly([a,b,c,d],'#F2C230'); }
+  });
+  poly(cab.top, sh([0,0,1],1.06));
+  if(!detail && o.ticket>0){ const k=o.ticket, c0=suv?1.15:1.0; poly(frustum(x,y,h,[c0,c0+0.45*k,0.3*k],[c0,c0+0.45*k,0.3*k],B1+0.01,B1+0.02).top,'#F2C230'); }
+  if(detail){ const ml=suv?1.0:0.86; for(const sgn of [-1,1]){ const m=frustum(x,y,h,[ml,ml+0.16,0.07],[ml,ml+0.16,0.07],B1-0.02,B1+0.1); const off=sgn*1.0;
+      const M=frustum(x+r[0]*off,y+r[1]*off,h,[ml,ml+0.16,0.08],[ml,ml+0.14,0.07],B1-0.02,B1+0.11); M.sides.forEach(F=>{ const n=faceN(F); if(facing(F,n)) poly(F,sh(n,0.85)); }); poly(M.top,sh([0,0,1])); } }
 }
 function carShadow(x,y,h,hgt){
-  const f=[Math.sin(h),Math.cos(h)], r=[Math.cos(h),-Math.sin(h)], L=2.35, W=0.95;
+  poly(obb(x,y,h,4.85,2.05).map(p=>[p[0],p[1],0.01]),'rgba(8,10,14,.22)');                 // contact shadow
+  const f=FV(h), r=[Math.cos(h),-Math.sin(h)], L=2.3, W=0.92;
   const pts=[]; for(const [l,w] of [[-L,-W],[L,-W],[L,W],[-L,W]]){ const px=x+f[0]*l+r[0]*w, py=y+f[1]*l+r[1]*w; pts.push([px,py],[px+SHX*hgt,py+SHY*hgt]); }
-  // convex hull of footprint + its cast copy
   pts.sort((a,b)=>a[0]-b[0]||a[1]-b[1]); const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);
   const lo=[],hi=[]; for(const p of pts){ while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],p)<=0) lo.pop(); lo.push(p); }
   for(let i=pts.length-1;i>=0;i--){ const p=pts[i]; while(hi.length>=2&&cr(hi[hi.length-2],hi[hi.length-1],p)<=0) hi.pop(); hi.push(p); }
-  const hull=lo.slice(0,-1).concat(hi.slice(0,-1)); poly(hull.map(p=>[p[0],p[1],0.01]),'rgba(10,12,16,.30)');
+  poly(lo.slice(0,-1).concat(hi.slice(0,-1)).map(p=>[p[0],p[1],0.011]),'rgba(8,10,14,.24)');
 }
-function tree(x,y,r){
-  const base=toCam([x,y,0]); if(base[2]<NEAR+1) return;
-  const top=toCam([x,y,r*1.5]); const a=scr(base), b=scr(top);
-  g.strokeStyle='#5C4A3A'; g.lineWidth=Math.max(1,CAM.f*0.35/base[2]); g.beginPath(); g.moveTo(a[0],a[1]); g.lineTo(b[0],b[1]); g.stroke();
-  const c=toCam([x,y,r*1.9]); if(c[2]<NEAR) return; const s=scr(c), R=CAM.f*r/c[2];
-  g.fillStyle='#4C6A33'; g.beginPath(); g.arc(s[0],s[1],R,0,Math.PI*2); g.fill();
-  g.fillStyle='#5E7F3E'; g.beginPath(); g.arc(s[0]-R*0.22,s[1]-R*0.25,R*0.68,0,Math.PI*2); g.fill();
+function island(x0,y0,x1,y1){
+  const k=0.15, top=rect(x0,y0,x1,y1,k), base=rect(x0,y0,x1,y1,0);
+  for(let i=0;i<4;i++){ const F=[base[i],base[(i+1)%4],top[(i+1)%4],top[i]], n=faceN(F); if(facing(F,n)) poly(F,'#AEA99C'); }
+  poly(top,'#D8D4C8'); poly(rect(x0+0.35,y0+0.35,x1-0.35,y1-0.35,k+0.01),'#5F7444');
+  const r=rng(Math.floor(x0*7+y0*13)); for(let i=0;i<6;i++){ const cx=x0+0.9+r()*(x1-x0-1.8), cy=y0+0.9+r()*(y1-y0-1.8); poly(ringPts(cx,cy,0.45+r()*0.3,8,k+0.02), r()<0.5?'#6E8A4A':'#56703A'); }
 }
-function pole(x,y){ const a=toCam([x,y,0]), b=toCam([x,y,11]); if(a[2]<NEAR+1||b[2]<NEAR) return; const A=scr(a),B=scr(b);
-  g.strokeStyle='#8A8E93'; g.lineWidth=Math.max(1,CAM.f*0.22/a[2]); g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]); g.stroke();
-  poly(rect(x-1.1,y-0.25,x+1.1,y+0.25,11),'#55595E'); }
+let SUNSCR=[-0.6,-0.8];
+function tree(T){
+  if(T.kind==='palm') return palm(T);
+  const {x,y,r}=T, base=toCam([x,y,0]); if(base[2]<NEAR+1) return;
+  const a=scr(base), b=scr(toCam([x,y,r*1.4]));
+  g.strokeStyle='#5A4636'; g.lineCap='round'; g.lineWidth=Math.max(1,CAM.f*0.38/base[2]); g.beginPath(); g.moveTo(a[0],a[1]); g.lineTo(b[0],b[1]); g.stroke();
+  const bl=T.blobs.map(([dx,dy,z,rr])=>({c:toCam([x+dx,y+dy,z]),rr})).filter(q=>q.c[2]>NEAR).sort((p,q)=>q.c[2]-p.c[2]);
+  const hue=T.tone;
+  for(const q of bl){ const s=scr(q.c), R=CAM.f*q.rr/q.c[2]; if(R<0.6) continue;
+    const hx=s[0]+SUNSCR[0]*R*0.38, hy=s[1]+SUNSCR[1]*R*0.38, gr=g.createRadialGradient(hx,hy,R*0.08,s[0],s[1],R*1.02);
+    gr.addColorStop(0, hue<0.5?'#8DAE5E':'#97B163'); gr.addColorStop(0.5, hue<0.5?'#5E8240':'#668443'); gr.addColorStop(1, hue<0.5?'#2F4A22':'#354E24');
+    g.fillStyle=gr; g.beginPath(); g.arc(s[0],s[1],R,0,Math.PI*2); g.fill(); }
+}
+function palm(T){
+  const {x,y,h,lean}=T, base=toCam([x,y,0]); if(base[2]<NEAR+1) return;
+  const pts=[]; for(let i=0;i<=8;i++){ const q=i/8, c=toCam([x+lean[0]*q*q, y+lean[1]*q*q, h*q]); if(c[2]<NEAR) return; pts.push(scr(c)); }
+  const w0=CAM.f*0.36/base[2];
+  for(let i=0;i<8;i++){ g.strokeStyle= i%2?'#8C7C66':'#7F705B'; g.lineWidth=Math.max(0.8,w0*(1-i/8*0.45)); g.lineCap='round'; g.beginPath(); g.moveTo(pts[i][0],pts[i][1]); g.lineTo(pts[i+1][0],pts[i+1][1]); g.stroke(); }
+  const cr=[x+lean[0], y+lean[1], h];
+  const fr=T.fr.map(([a,L,dr])=>{ const sp=[]; for(let k=0;k<=6;k++){ const d=L*k/6; sp.push(toCam([cr[0]+Math.cos(a)*d, cr[1]+Math.sin(a)*d, cr[2]+0.35*d-dr*d*d])); } return sp; }).filter(sp=>sp.every(c=>c[2]>NEAR));
+  fr.sort((p,q)=>q[6][2]-p[6][2]);
+  for(const sp of fr){ const S=sp.map(scr), W=sp.map((c,k)=>CAM.f*0.42*Math.sin(Math.PI*Math.min(0.98,k/6+0.08))/c[2]);
+    const L=[],Rr=[]; for(let k=0;k<S.length;k++){ const a=S[Math.max(0,k-1)], b=S[Math.min(S.length-1,k+1)]; let nx=-(b[1]-a[1]), ny=b[0]-a[0]; const l=Math.hypot(nx,ny)||1; nx/=l; ny/=l; L.push([S[k][0]+nx*W[k],S[k][1]+ny*W[k]]); Rr.push([S[k][0]-nx*W[k],S[k][1]-ny*W[k]]); }
+    g.fillStyle='#4C6B31'; g.beginPath(); g.moveTo(L[0][0],L[0][1]); for(const p of L) g.lineTo(p[0],p[1]); for(const p of Rr.reverse()) g.lineTo(p[0],p[1]); g.closePath(); g.fill();
+    g.strokeStyle='#7A9952'; g.lineWidth=Math.max(0.5,W[2]*0.35); g.beginPath(); g.moveTo(S[0][0],S[0][1]); for(const p of S) g.lineTo(p[0],p[1]); g.stroke(); }
+  const c=toCam(cr); if(c[2]>NEAR){ const s=scr(c); g.fillStyle='#5B5139'; g.beginPath(); g.arc(s[0],s[1],Math.max(1,CAM.f*0.35/c[2]),0,Math.PI*2); g.fill(); }
+}
+function pole(x,y){
+  const a=toCam([x,y,0]); if(a[2]<NEAR+1) return;
+  const bs=frustum(x,y,0,[-0.32,0.32,0.32],[-0.28,0.28,0.28],0,0.7); bs.sides.forEach(F=>{ const n=faceN(F); if(facing(F,n)) poly(F,rgb([190,185,174].map(v=>v*shadeK(n)))); }); poly(bs.top,'#C9C4B8');
+  const p0=toCam([x,y,0.7]), p1=toCam([x,y,10.2]); if(p0[2]<NEAR||p1[2]<NEAR) return; const A=scr(p0),B=scr(p1);
+  const w=Math.max(1,CAM.f*0.2/p0[2]); g.lineCap='butt'; g.strokeStyle='#6F747A'; g.lineWidth=w; g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]); g.stroke();
+  g.strokeStyle='#A3A8AE'; g.lineWidth=Math.max(0.5,w*0.35); g.beginPath(); g.moveTo(A[0]-w*0.2,A[1]); g.lineTo(B[0]-w*0.2,B[1]); g.stroke();
+  for(const sg of [-1,1]){ const e=toCam([x+sg*1.5,y,10.2]); if(e[2]<NEAR) continue; const E=scr(e); g.strokeStyle='#6F747A'; g.lineWidth=Math.max(0.8,w*0.6); g.beginPath(); g.moveTo(B[0],B[1]); g.lineTo(E[0],E[1]); g.stroke();
+    const hd=frustum(x+sg*1.75,y,Math.PI/2,[-0.45,0.45,0.22],[-0.42,0.42,0.2],10.05,10.25); hd.sides.forEach(F=>{ const n=faceN(F); if(facing(F,n)) poly(F,'#3A3D41'); }); poly(hd.top,'#4A4E53'); }
+}
+function poleShadow(x,y){ const L=10.2, ex=x+SHX*L, ey=y+SHY*L, nx=-(ey-y), ny=ex-x, l=Math.hypot(nx,ny), w=0.11;
+  poly([[x+nx/l*w,y+ny/l*w,0.012],[ex+nx/l*w,ey+ny/l*w,0.012],[ex-nx/l*w,ey-ny/l*w,0.012],[x-nx/l*w,y-ny/l*w,0.012]],'rgba(8,10,14,.22)'); }
 function pin(x,y,zb,t){                      // sheriff's badge marker standing over a referred space
   const a=toCam([x,y,zb]), b=toCam([x,y,zb+3.4]); if(a[2]<NEAR+1||b[2]<NEAR) return;
   const A=scr(a), B=scr(b), R=CAM.f*1.25/b[2];
@@ -358,20 +458,27 @@ function render(t){
   for(const [i,s] of stalls.entries()){
     let x=s.x+s.jx, y=s.y, h=s.h+s.jh;
     if(i===HERO){ const hp=heroPose(t); x=hp.x; y=hp.y; h=hp.h; }
-    if(s.cancel && t>=s.leaveT){ const d=departPose(s,t); if(!d) continue; x=d.x; y=d.y; h=d.h; }
-    poses.push({i,s,x,y,h});
+    let st=null;
+    if(s.cancel){ const d=departPose(s,t); if(!d) continue; x=d.x; y=d.y; h=d.h; st=d; }
+    poses.push({i,s,x,y,h,st});
   }
   for(const p of poses) carShadow(p.x,p.y,p.h,p.s.suv?1.7:1.45);
-  for(const [x,y,r] of TREES) poly(ringPts(x+SHX*r*1.9,y+SHY*r*1.9,r,16,0.01),'rgba(10,12,16,.25)');
+  for(const T of TREES){ const hh=T.kind==='palm'?T.h:T.r*1.9, rr=T.kind==='palm'?2.4:T.r*1.05; poly(ringPts(T.x+SHX*hh+(T.lean?T.lean[0]:0),T.y+SHY*hh+(T.lean?T.lean[1]:0),rr,16,0.01),'rgba(8,10,14,.24)'); }
+  for(const [x,y] of POLES) poleShadow(x,y);
+  { const c0=toCam([LOT_W/2,LOT_D/2,0]), c1=toCam([LOT_W/2+SUNN[0]*10,LOT_D/2+SUNN[1]*10,SUNN[2]*10]); if(c0[2]>NEAR&&c1[2]>NEAR){ const a=scr(c0),b=scr(c1); const l=Math.hypot(b[0]-a[0],b[1]-a[1])||1; SUNSCR=[(b[0]-a[0])/l,(b[1]-a[1])/l]; } }
+  LIGHTS.length=0;
   // objects, far to near
   const items=[];
-  for(const p of poses) items.push({d:toCam([p.x,p.y,1])[2], fn:()=>{ const s=p.s, mute= s.flag?0:seg(t,T.ticket-0.3,1.0,INOUT); car(p.x,p.y,p.h,s.color,{suv:s.suv,mute,ticket:s.flag?POP(clamp((t-s.flagT)/0.45)):0}); }});
-  for(const [x,y,r] of TREES) items.push({d:toCam([x,y,r])[2], fn:()=>tree(x,y,r)});
+  for(const p of poses) items.push({d:toCam([p.x,p.y,1])[2], fn:()=>{ const s=p.s, mute= s.flag?0:seg(t,T.ticket-0.3,1.0,INOUT); const st=p.st, rev=!!st&&st.ph==='rev', brake=!!s.cancel && ((t>s.leaveT-0.5 && t<s.leaveT) || (rev && st.u>KIN.REV*0.55) || (st&&st.ph==='stop'));
+    car(p.x,p.y,p.h,s.color,{suv:s.suv,mute,ticket:s.flag?POP(clamp((t-s.flagT)/0.45)):0,rev,brake}); }});
+  for(const T of TREES) items.push({d:toCam([T.x,T.y,T.kind==='palm'?T.h*0.5:T.r])[2], fn:()=>tree(T)});
   for(const [x,y] of POLES) items.push({d:toCam([x,y,5])[2], fn:()=>pole(x,y)});
-  for(const s of stalls) if(s.refer && t>s.pinT){ const p=clamp((t-s.pinT)/0.7), zb=lerp(26,1.6,POP(p)); items.push({d:toCam([s.x,s.y,zb+2])[2]-3, fn:()=>pin(s.x,s.y,zb,t)}); }
+  for(const s of stalls) if(s.refer && t>s.pinT){ const p=clamp((t-s.pinT)/0.7), zb=lerp(26,1.6,POP(p)); poly(ringPts(s.x+SHX*(zb+3.4),s.y+SHY*(zb+3.4),1.1,14,0.02),'rgba(8,10,14,.22)'); items.push({d:toCam([s.x,s.y,zb+2])[2]-3, fn:()=>pin(s.x,s.y,zb,t)}); }
   items.sort((a,b)=>b.d-a.d); for(const it of items) if(it.d>NEAR) it.fn();
-  // red/blue lights pulse around the referred spaces once marked
+  // red/blue lights pulse around the referred spaces once marked; brake / reverse lamps glow
   g.save(); g.globalCompositeOperation='lighter';
+  for(const [p1,p2,col,a] of LIGHTS) for(const P3 of [p1,p2]){ const c=toCam(P3); if(c[2]<NEAR) continue; const p=scr(c), R=CAM.f*0.55/c[2]; if(R<1) continue;
+    const gg=g.createRadialGradient(p[0],p[1],0,p[0],p[1],R); gg.addColorStop(0,rgb(col,a)); gg.addColorStop(1,rgb(col,0)); g.fillStyle=gg; g.fillRect(p[0]-R,p[1]-R,2*R,2*R); }
   for(const s of stalls) if(s.refer && t>s.pinT+0.4){ const c=toCam([s.x,s.y,1.5]); if(c[2]<NEAR) continue; const p=scr(c), R=CAM.f*5.5/c[2], ph=Math.floor(t*4+s.c)%2;
     const gg=g.createRadialGradient(p[0],p[1],0,p[0],p[1],R); const col=ph?[232,57,46]:[47,107,255]; gg.addColorStop(0,rgb(col,0.32)); gg.addColorStop(1,rgb(col,0)); g.fillStyle=gg; g.fillRect(p[0]-R,p[1]-R,2*R,2*R); }
   g.restore();
@@ -389,7 +496,7 @@ window.ready=(async()=>{
   STENCILS=STATS.map(makeStencil); ISA=makeISA(); render(0); return true;
 })();
 window.render=render;
-window.__data={STATS,SPACES,stalls,FLAGGED,CANCELED,REFERRED,HERO,T,DURATION,KEYS,camAt,departPose,LOT_W,LOT_D,ST_POS,STW,STH,toCam:(p)=>toCam(p),scr:(c)=>scr(c)};
+window.__data={KIN,axlePose,obb,sep,poseAt,STATS,SPACES,stalls,FLAGGED,CANCELED,REFERRED,HERO,T,DURATION,KEYS,camAt,departPose,LOT_W,LOT_D,ST_POS,STW,STH,toCam:(p)=>toCam(p),scr:(c)=>scr(c)};
 const q=new URLSearchParams(location.search);
 if(!q.has('capture')) window.ready.then(()=>{ if(q.has('t')){render(+q.get('t'));return;} const t0=performance.now(); const loop=n=>{render(((n-t0)/1000)%(DURATION+1)); requestAnimationFrame(loop);}; requestAnimationFrame(loop); });
 </script>

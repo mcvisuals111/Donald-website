@@ -32,19 +32,29 @@ const path = require('path');
     const ov=document.querySelector('#stage').textContent.replace(/\s+/g,' ');
     for(const need of ['MIAMI-DADE COUNTY · COUNTYWIDE AUDIT','Disabled Parking Permit Investigation','Source: Miami-Dade County Tax Collector, October 20, 2026.','Each space = 100 applications, rounded to the nearest whole space.']) if(!ov.includes(need)) fail(-1,'overlay missing: '+need);
     const all=[...document.querySelectorAll('#stage *')];
-    const leavers=D.CANCELED.map(i=>D.stalls[i]); let prevPose=null;
+    const leavers=D.CANCELED.map(i=>D.stalls[i]);
+    // nearby cars for each leaver: every stall within 14 m (parked or leaving)
+    const near=leavers.map(s=>D.stalls.filter(o=>o!==s && Math.abs(o.x-s.x)<40 && Math.abs(o.y-s.y)<14));
+    let prevPose=null;
     for(let f=0;f<N;f++){
       const t=f/fps; window.render(t);
       for(const el of all){ const o=getComputedStyle(el).opacity; if(o!=='1'){ fail(f,`opacity ${o}`); break; } }
       const C=D.camAt(t); if(!(C.z>=6) || [C.x,C.y,C.z,C.f].some(v=>!isFinite(v))) fail(f,`camera bad (z=${C.z})`);
-      // departing cars: no two closer than a car length, no jumps
-      const poses=leavers.map(s=>D.departPose(s,t));
-      for(let a=0;a<poses.length;a++) for(let c=a+1;c<poses.length;c++){ const A=poses[a],B=poses[c]; if(!A||!B) continue;
-        const sameAisle=leavers[a].aisle===leavers[c].aisle; const d=Math.hypot(A.x-B.x,A.y-B.y);
-        if(d<4.7) fail(f,`departing cars overlap (${d.toFixed(2)} m)`); }
-      if(prevPose) poses.forEach((P,k)=>{ const Q=prevPose[k]; if(P&&Q){ const d=Math.hypot(P.x-Q.x,P.y-Q.y); if(d>0.6) fail(f,`departing car jumped ${d.toFixed(2)} m`); } });
+      const poses=leavers.map(s=>D.poseAt(s,t));
+      leavers.forEach((s,k)=>{ const P=poses[k]; if(!P) return; const A=D.obb(P.x,P.y,P.h);
+        // no car may touch any other car, parked or moving
+        for(const o of near[k]){ const Q=D.poseAt(o,t); if(!Q) continue; const ov=D.sep(A,D.obb(Q.x,Q.y,Q.h)); if(ov>0.0) fail(f,`car ${k} touches stall ${o.row}/${o.c} (${ov.toFixed(2)} m)`); }
+        // no sideways slip: the rear axle only ever moves along the car's heading
+        const a0=D.axlePose(s,t-s.leaveT), a1=D.axlePose(s,t+1e-3-s.leaveT);
+        if(a0&&a1){ const v=[a1.ax[0]-a0.ax[0],a1.ax[1]-a0.ax[1]], sp=Math.hypot(...v), lat=Math.abs(v[0]*Math.cos(a0.h)-v[1]*Math.sin(a0.h));
+          if(sp>1e-7 && lat>0.03*sp+1e-6) fail(f,`car ${k} slides sideways (${(lat/sp*100).toFixed(1)}% of motion)`); }
+      });
+      if(prevPose) poses.forEach((P,k)=>{ const Q=prevPose[k]; if(P&&Q){ const d=Math.hypot(P.x-Q.x,P.y-Q.y), dh=Math.abs(Math.atan2(Math.sin(P.h-Q.h),Math.cos(P.h-Q.h)));
+        if(d>0.2) fail(f,`car ${k} jumped ${d.toFixed(2)} m`); if(dh>0.08) fail(f,`car ${k} heading snapped ${dh.toFixed(3)} rad`); } });
       prevPose=poses;
     }
+    // every one of the 62 canceled spaces is empty and fully crossed out before the clip ends
+    leavers.forEach((s,k)=>{ if(s.clearT+0.1+0.7 > D.DURATION-1/fps) fail(-1,`canceled space ${k} not crossed out by the end (clears at ${s.clearT.toFixed(2)}s)`); });
     // final frame: every painted figure fully on screen and readable
     window.render(D.DURATION-1/fps);
     const S=(x,y)=>D.scr(D.toCam([x,y,0]));
