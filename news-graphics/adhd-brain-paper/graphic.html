@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ADHD Brain Paper</title>
+<style>
+@font-face{font-family:"Play";src:url(fonts/PlayfairDisplay-BlackItalic.woff2);font-weight:900;font-style:italic}
+@font-face{font-family:"GText";src:url(fonts/Inter-SemiBold.otf);font-weight:600}
+*{margin:0;padding:0}
+html,body{background:#000;overflow:hidden}
+#c{width:1920px;height:1080px;display:block}
+</style>
+</head>
+<body>
+<canvas id="c" width="3840" height="2160"></canvas>
+<script>
+/* ================================================================
+   ADHD BRAIN — paper cut-out explainer, 17 s
+   VO: "The ADHD brain lacks some of the neurochemicals that allow the brain to regulate in a way
+        that it does for other people. But when they're interested in something, those
+        neurotransmitters are firing and they can stay super focused."
+   ================================================================ */
+const DURATION=17, W=1920, H=1080;
+const LABELS=[      // the yellow strip: each beat re-shapes it and swaps its words
+  { t:0.45,  text:'ADHD Brain',                 size:104, x:960, y:585 },
+  { t:1.75,  text:'Lacks some neurochemicals',  size:60,  x:960, y:124 },
+  { t:5.45,  text:'Regulates differently',      size:60,  x:960, y:124 },
+  { t:9.65,  text:'Interested in something',    size:60,  x:960, y:124 },
+  { t:11.85, text:'Neurotransmitters firing',   size:60,  x:960, y:124 },
+  { t:14.45, text:'Super focused',              size:74,  x:960, y:246 },
+];
+const CARD_TITLES=['ADHD brain','Other people'];
+
+/* ---------------- easing ---------------- */
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+function spring(z=0.8,w=10){ const wd=w*Math.sqrt(1-z*z); const raw=x=>1-Math.exp(-z*w*x)*(Math.cos(wd*x)+(z*w/wd)*Math.sin(wd*x)); const e=raw(1); return x=>x<=0?0:x>=1?1:raw(x)/e; }
+function bezier(x1,y1,x2,y2){
+  const cx=3*x1,bx=3*(x2-x1)-cx,ax=1-cx-bx,cy=3*y1,by=3*(y2-y1)-cy,ay=1-cy-by;
+  const X=s=>((ax*s+bx)*s+cx)*s,Y=s=>((ay*s+by)*s+cy)*s,dX=s=>(3*ax*s+2*bx)*s+cx;
+  return x=>{ if(x<=0)return 0; if(x>=1)return 1; let s=x; for(let i=0;i<8;i++){const e=X(s)-x,d=dX(s); if(Math.abs(e)<1e-7||Math.abs(d)<1e-6)break; s-=e/d;}
+    let lo=0,hi=1; if(Math.abs(X(s)-x)>1e-5){s=x; for(let i=0;i<40;i++){ if(X(s)<x)lo=s; else hi=s; s=(lo+hi)/2; }} return Y(s); };
+}
+const OUT=bezier(0.16,1,0.3,1), INOUT=bezier(0.65,0,0.35,1), MOVE=spring(0.82,9), POP=spring(0.55,12), SOFT=spring(0.9,8), DRAW=bezier(0.45,0,0.2,1);
+const seg=(t,t0,d,e=x=>x)=>e(clamp((t-t0)/d));
+const lerp=(a,b,p)=>a+(b-a)*p;
+const mix=(a,b,p)=>a.map((v,i)=>v+(b[i]-v)*p);
+const rgb=(c,a=1)=>`rgba(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])},${a})`;
+function rng(seed){ return ()=>{ seed|=0; seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function track(t,keys){ if(t<=keys[0][0]) return keys[0][1]; for(let i=1;i<keys.length;i++){ const [t1,v1,e]=keys[i],[t0,v0]=keys[i-1]; if(t<t1){ const p=(e||(x=>x))((t-t0)/(t1-t0)); return Array.isArray(v0)?v0.map((v,j)=>lerp(v,v1[j],p)):lerp(v0,v1,p); } } return keys[keys.length-1][1]; }
+// smooth value noise
+const PERM=(()=>{ const r=rng(1234), p=[...Array(256).keys()]; for(let i=255;i>0;i--){ const j=Math.floor(r()*(i+1)); [p[i],p[j]]=[p[j],p[i]]; } return p.concat(p); })();
+const GR=(()=>{ const r=rng(99); return Array.from({length:256},()=>r()*2-1); })();
+function vnoise(x,y){ const xi=Math.floor(x), yi=Math.floor(y), xf=x-xi, yf=y-yi, u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf);
+  const h=(i,j)=>GR[PERM[(PERM[(i)&255]+(j))&255]]; const a=h(xi,yi), b=h(xi+1,yi), c=h(xi,yi+1), d=h(xi+1,yi+1);
+  return lerp(lerp(a,b,u),lerp(c,d,u),v); }
+
+/* ================================================================
+   PAPER: table paper, pencil grid, grain
+   ================================================================ */
+const PAPER=[234,233,228];
+function mk(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
+let GRID, GRAIN;
+function buildPaper(){
+  GRAIN=mk(1920,1080); { const g=GRAIN.getContext('2d'), im=g.createImageData(1920,1080), r=rng(5);
+    for(let i=0;i<im.data.length;i+=4){ const v=232+Math.floor((r()+r()+r()-1.5)*22); im.data[i]=v; im.data[i+1]=v; im.data[i+2]=v-2; im.data[i+3]=255; }
+    g.putImageData(im,0,0);
+    for(let k=0;k<900;k++){ const x=r()*1920, y=r()*1080, a=r()*Math.PI*2, L=8+r()*30; g.strokeStyle= r()<0.5?'rgba(255,255,255,.55)':'rgba(150,150,145,.35)'; g.lineWidth=0.6+r()*0.6;
+      g.beginPath(); g.moveTo(x,y); g.quadraticCurveTo(x+Math.cos(a+0.4)*L*0.5,y+Math.sin(a+0.4)*L*0.5,x+Math.cos(a)*L,y+Math.sin(a)*L); g.stroke(); } }
+  // pencil construction grid, like the reference: dashed lines with crosshair ticks, drawn by hand
+  GRID=mk(3840,2160); { const g=GRID.getContext('2d'); g.scale(2,2); const r=rng(17);
+    const xs=[420,640,860,1060,1280,1500], ys=[300,450,600,750,900];
+    const pencil=(x0,y0,x1,y1)=>{ const L=Math.hypot(x1-x0,y1-y0), n=Math.floor(L/26); for(let i=0;i<n;i++){ if(r()<0.32) continue; const a=i/n, b=(i+0.45+r()*0.35)/n;
+        g.strokeStyle=`rgba(96,96,92,${0.30+r()*0.25})`; g.lineWidth=0.9+r()*0.7; g.beginPath(); g.moveTo(lerp(x0,x1,a)+(r()-0.5)*1.2,lerp(y0,y1,a)+(r()-0.5)*1.2); g.lineTo(lerp(x0,x1,b)+(r()-0.5)*1.2,lerp(y0,y1,b)+(r()-0.5)*1.2); g.stroke(); } };
+    for(const x of xs) pencil(x,240+r()*30,x+(r()-0.5)*4,950-r()*30);
+    for(const y of ys) pencil(360+r()*30,y,1560-r()*30,y+(r()-0.5)*4);
+    for(const x of xs) for(const y of ys){ if(r()<0.25) continue; g.strokeStyle='rgba(70,70,66,.62)'; g.lineWidth=1.4; const s=9+r()*6;
+      g.beginPath(); g.moveTo(x-s,y+(r()-0.5)); g.lineTo(x+s,y+(r()-0.5)); g.moveTo(x+(r()-0.5),y-s); g.lineTo(x+(r()-0.5),y+s); g.stroke(); } }
+}
+
+/* ================================================================
+   THE BRAIN — a paper cut-out, shaded from a height map of real fold patterns
+   art space: 700 x 520 units, rendered at 2x
+   ================================================================ */
+const AW=700, AH=520, RS=2;
+const CEREBRUM=[[48,262],[66,196],[118,132],[196,88],[292,62],[392,56],[486,74],[566,116],[624,178],[652,248],[648,312],[616,352],[560,364],[500,358],[452,372],[398,396],[330,404],[262,390],[196,368],[130,342],[78,306]];
+function catmull(pts,n=14){ const out=[]; const N=pts.length; for(let i=0;i<N;i++){ const p0=pts[(i-1+N)%N],p1=pts[i],p2=pts[(i+1)%N],p3=pts[(i+2)%N];
+  for(let k=0;k<n;k++){ const t=k/n,t2=t*t,t3=t2*t; out.push([0,1].map(j=>0.5*((2*p1[j])+(-p0[j]+p2[j])*t+(2*p0[j]-5*p1[j]+4*p2[j]-p3[j])*t2+(-p0[j]+3*p1[j]-3*p2[j]+p3[j])*t3))); } } return out; }
+const CERE_PTS=catmull(CEREBRUM);
+const CB={cx:548,cy:398,rx:94,ry:54,rot:-0.12};
+const STEM=[[446,378],[502,368],[536,500],[528,512],[494,516],[486,505]];
+let BRAIN, OUTLINE;           // brain image, union outline (for the morph into the star)
+function pathPts(g,pts,s=1){ g.beginPath(); g.moveTo(pts[0][0]*s,pts[0][1]*s); for(const p of pts.slice(1)) g.lineTo(p[0]*s,p[1]*s); g.closePath(); }
+function maskOf(drawFn){ const c=mk(AW*RS,AH*RS), g=c.getContext('2d'); g.fillStyle='#fff'; drawFn(g); const d=g.getImageData(0,0,c.width,c.height).data; const m=new Float32Array(c.width*c.height); for(let i=0;i<m.length;i++) m[i]=d[i*4+3]/255; return m; }
+function blur(src,w,h,r,passes=3){ let a=Float32Array.from(src), b=new Float32Array(a.length);
+  for(let p=0;p<passes;p++){ for(let y=0;y<h;y++){ let acc=0; for(let x=-r;x<=r;x++) acc+=a[y*w+clamp(x,0,w-1)]; for(let x=0;x<w;x++){ b[y*w+x]=acc/(2*r+1); acc+=a[y*w+Math.min(w-1,x+r+1)]-a[y*w+Math.max(0,x-r)]; } }
+    for(let x=0;x<w;x++){ let acc=0; for(let y=-r;y<=r;y++) acc+=b[clamp(y,0,h-1)*w+x]; for(let y=0;y<h;y++){ a[y*w+x]=acc/(2*r+1); acc+=b[Math.min(h-1,y+r+1)*w+x]-b[Math.max(0,y-r)*w+x]; } } }
+  return a; }
+function buildBrain(){
+  const w=AW*RS, h=AH*RS;
+  const mCere=maskOf(g=>{ pathPts(g,CERE_PTS,RS); g.fill(); });
+  const mCb=maskOf(g=>{ g.beginPath(); g.ellipse(CB.cx*RS,CB.cy*RS,CB.rx*RS,CB.ry*RS,CB.rot,0,Math.PI*2); g.fill(); });
+  const mSt=maskOf(g=>{ pathPts(g,STEM,RS); g.fill(); });
+  const dCere=blur(mCere,w,h,34), dCb=blur(mCb,w,h,22), dSt=blur(mSt,w,h,16);
+  const cereShadow=blur(mCere,w,h,10);
+  const Hh=new Float32Array(w*h), part=new Uint8Array(w*h), hgA=new Float32Array(w*h);
+  // gyri: a Turing (reaction-diffusion style) labyrinth -- the even, worm-like folds of a real cortex
+  const LW=350, LH=260; let lab=new Float32Array(LW*LH); { const r=rng(4242); for(let i=0;i<lab.length;i++) lab[i]=r()*2-1; }
+  for(let it=0; it<26; it++){ const a=blur(lab,LW,LH,3,2), b=blur(lab,LW,LH,8,2); for(let i=0;i<lab.length;i++) lab[i]=Math.tanh(5*(a[i]-b[i])); }
+  lab=blur(lab,LW,LH,2,2);                       // soften: each fold rounds down into its groove
+  const labAt=(u,v)=>{ const x=clamp(u/2,0,LW-1.001), y=clamp(v/2,0,LH-1.001), xi=Math.floor(x), yi=Math.floor(y), fx=x-xi, fy=y-yi, i=yi*LW+xi;
+    return lerp(lerp(lab[i],lab[i+1],fx),lerp(lab[i+LW],lab[i+LW+1],fx),fy); };
+  // the lateral (Sylvian) fissure, as a polyline in art units
+  const syl=[[196,338],[262,318],[330,292],[392,268],[436,250]];
+  const dSeg=(px,py)=>{ let m=1e9; for(let i=0;i<syl.length-1;i++){ const [ax,ay]=syl[i],[bx,by]=syl[i+1], vx=bx-ax, vy=by-ay, t=clamp(((px-ax)*vx+(py-ay)*vy)/(vx*vx+vy*vy)); m=Math.min(m,Math.hypot(px-ax-vx*t,py-ay-vy*t)); } return m; };
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const i=y*w+x; const u=x/RS, v=y/RS;
+    let p=0; if(mCere[i]>0.02) p=1; else if(mCb[i]>0.02) p=2; else if(mSt[i]>0.02) p=3; part[i]=p; if(!p) continue;
+    let hg, dome;
+    if(p===1){ // cerebrum: meandering gyri = zero-crossings of a domain-warped noise field
+      const f=labAt(u+6*vnoise(u/40,v/40), v+6*vnoise(u/40+9,v/40+5));
+      const q=clamp(Math.abs(f)/0.95); hg=Math.pow(q*(2-q),0.75);   // every boundary in the maze is a sulcus  // rounded crowns, narrow deep sulci
+      const ds=dSeg(u,v); hg*=1-0.85*Math.exp(-ds*ds/(2*4.5*4.5));
+      dome=dCere[i];
+    } else if(p===2){ // cerebellum: fine parallel folia
+      const a=CB.rot, yy=(v-CB.cy)*Math.cos(a)-(u-CB.cx)*Math.sin(a)+5*vnoise(u/38,v/38);
+      hg=Math.pow(Math.abs(Math.sin(yy*Math.PI/5.2)),0.55); dome=dCb[i];
+    } else { hg=1; dome=dSt[i]; }
+    hgA[i]=hg; Hh[i]=Math.sqrt(dome)*58*RS*0.5 + hg*(p===1?17:7)*RS*0.5;
+  }
+  const img=new ImageData(w,h), L=[-0.48,-0.62,0.62], LL=Math.hypot(...L), Ln=L.map(q=>q/LL);
+  const CROWN={1:[246,160,140],2:[236,140,124],3:[240,176,156]}, SULC={1:[150,56,48],2:[160,62,54],3:[214,128,110]};
+  for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){ const i=y*w+x, p=part[i]; if(!p) continue;
+    const dx=(Hh[i+1]-Hh[i-1])*0.5, dy=(Hh[i+w]-Hh[i-w])*0.5, n=[-dx,-dy,1], nl=Math.hypot(...n), nn=n.map(q=>q/nl);
+    const dif=Math.max(0,nn[0]*Ln[0]+nn[1]*Ln[1]+nn[2]*Ln[2]), spec=Math.pow(dif,18)*0.16;
+    let c=mix(SULC[p],CROWN[p],hgA[i]); let k=0.48+0.66*dif;
+    if(p!==1) k*=1-0.42*cereShadow[Math.max(0,i-12-14*w)];           // cerebrum casts a shadow on the pieces behind it
+    c=c.map(q=>Math.min(255,q*k+255*spec));
+    const a = p===1?mCere[i]:p===2?mCb[i]:mSt[i];
+    img.data[i*4]=c[0]; img.data[i*4+1]=c[1]; img.data[i*4+2]=c[2]; img.data[i*4+3]=Math.round(a*255);
+  }
+  BRAIN=mk(w,h); const g=BRAIN.getContext('2d'); g.putImageData(img,0,0);
+  // paper cut edges: a fine lighter rim where each piece was cut
+  g.save(); g.scale(RS,RS); g.lineJoin='round';
+  g.strokeStyle='rgba(255,226,214,.75)'; g.lineWidth=1.6; pathPts(g,CERE_PTS); g.save(); g.clip(); g.stroke(); g.restore();
+  g.restore();
+  // union outline (for the morph): trace the combined silhouette
+  const step=4, gw=Math.floor(w/step), gh=Math.floor(h/step), occ=(x,y)=> x>=0&&y>=0&&x<gw&&y<gh && part[(y*step)*w+x*step]>0;
+  let sx=-1, sy=-1; outer: for(let y=0;y<gh;y++) for(let x=0;x<gw;x++) if(occ(x,y)){ sx=x; sy=y; break outer; }
+  const dirs=[[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]], pts=[]; let cx=sx, cy=sy, back=6;
+  for(let n=0;n<20000;n++){ pts.push([cx*step/RS,cy*step/RS]); let found=false;
+    for(let k=0;k<8;k++){ const d=(back+1+k)%8, nx=cx+dirs[d][0], ny=cy+dirs[d][1]; if(occ(nx,ny)){ back=(d+4)%8; cx=nx; cy=ny; found=true; break; } }
+    if(!found || (cx===sx && cy===sy && n>10)) break; }
+  OUTLINE=resample(smoothPoly(pts,3),MORPH_N);
+}
+const MORPH_N=180;
+function smoothPoly(p,it){ for(let k=0;k<it;k++) p=p.map((q,i)=>{ const a=p[(i-1+p.length)%p.length], b=p[(i+1)%p.length]; return [(a[0]+2*q[0]+b[0])/4,(a[1]+2*q[1]+b[1])/4]; }); return p; }
+function resample(p,n){ const L=[0]; for(let i=1;i<=p.length;i++){ const a=p[i-1], b=p[i%p.length]; L.push(L[i-1]+Math.hypot(b[0]-a[0],b[1]-a[1])); }
+  const tot=L[L.length-1], out=[]; let j=0; for(let k=0;k<n;k++){ const d=tot*k/n; while(L[j+1]<d) j++; const a=p[j], b=p[(j+1)%p.length], q=(d-L[j])/(L[j+1]-L[j]||1); out.push([lerp(a[0],b[0],q),lerp(a[1],b[1],q)]); } return out; }
+function starPoly(n=MORPH_N){ const pts=[]; for(let k=0;k<10;k++){ const a=-Math.PI/2+k*Math.PI/5, r=k%2?0.41:1; pts.push([Math.cos(a)*r,Math.sin(a)*r]); } return resample(pts,n); }
+
+/* ---------------- the pathways: nodes, pencil links, neurochemical slots ---------------- */
+let NODES=[], EDGES=[], SLOTS=[];
+function buildNetwork(){
+  const c=mk(AW,AH), g=c.getContext('2d'); pathPts(g,CERE_PTS); const inside=(x,y)=>g.isPointInPath(x,y);
+  const r=rng(31); let tries=0;
+  while(NODES.length<14 && tries<5000){ tries++; const x=90+r()*530, y=90+r()*290; if(!inside(x,y)) continue;
+    // keep away from the silhouette edge and from each other
+    if(![[-34,0],[34,0],[0,-34],[0,34]].every(([a,b])=>inside(x+a,y+b))) continue;
+    if(NODES.some(n=>Math.hypot(n[0]-x,n[1]-y)<100)) continue; NODES.push([x,y]); }
+  const key=new Set();
+  NODES.forEach((n,i)=>{ NODES.map((m,j)=>[j,Math.hypot(m[0]-n[0],m[1]-n[1])]).filter(([j])=>j!==i).sort((a,b)=>a[1]-b[1]).slice(0,2).forEach(([j])=>{ const k=Math.min(i,j)+'-'+Math.max(i,j); if(!key.has(k)){ key.add(k); EDGES.push([Math.min(i,j),Math.max(i,j)]); } }); });
+  SLOTS=EDGES.map(([a,b],k)=>{ const A=NODES[a],B=NODES[b]; return [ (A[0]+B[0])/2, (A[1]+B[1])/2 ]; });
+}
+const FILLED_ADHD=new Set([1,4,7,10,13]);   // "lacks some": only a few of the slots hold a chemical at rest
+
+/* ================================================================
+   TIMELINE
+   ================================================================ */
+const T={ in:0.0, net:1.95, holes:2.55, split:5.45, cards:6.05, graphs:6.45, cardsOut:9.3, morph:9.6, morphDur:1.15, ticks:10.45,
+  sparks:11.9, fill:12.35, pulse:12.65, beam:14.5, iris:14.55 };
+// brain placements: [x, y, scale]
+const POS={ A:[960,585,1.06], B:[960,612,1.0], CL:[560,470,0.66], CR:[1360,470,0.66], DL:[700,585,0.86] };
+const STAR={x:1435,y:560,R:182};
+function brainL(t){ return track(t,[[0,[960,1190,1.06]],[1.3,POS.A,spring(0.82,8)],[T.net-0.25,POS.A],[T.net+0.75,POS.B,MOVE],[T.split,POS.B],[T.split+1.1,POS.CL,MOVE],[T.morph,POS.CL],[T.morph+1.15,POS.DL,MOVE]]); }
+function brainR(t){ return track(t,[[T.split,POS.B],[T.split+1.25,POS.CR,MOVE]]); }
+
+/* ================================================================
+   DRAWING
+   ================================================================ */
+const cv=document.getElementById('c'), g=cv.getContext('2d');
+function shadowed(fn,lift=1){ g.save(); g.shadowColor='rgba(40,30,25,.22)'; g.shadowBlur=14*lift; g.shadowOffsetX=3*lift; g.shadowOffsetY=7*lift; fn(); g.restore(); }
+const A2S=(P,u,v)=>[P[0]+(u-AW/2)*P[2], P[1]+(v-AH/2)*P[2]];
+function floatOf(t,ph){ return { y:Math.sin(t*1.25+ph)*2.2, r:Math.sin(t*0.9+ph*1.7)*0.0035, lift:1+0.12*Math.sin(t*1.25+ph) }; }
+
+function drawBrainImage(P,t,ph,clip){
+  const f=floatOf(t,ph);
+  g.save(); g.translate(P[0],P[1]+f.y); g.rotate(f.r); g.translate(-P[0],-P[1]-f.y);
+  shadowed(()=>{ if(clip) clip(); g.drawImage(BRAIN, P[0]-AW/2*P[2], P[1]+f.y-AH/2*P[2], AW*P[2], AH*P[2]); }, f.lift);
+  g.restore(); return f;
+}
+// pencil line with a hand-drawn "boil" (re-drawn at 12 fps like stop-motion)
+function pencil(x0,y0,x1,y1,t,prog=1,w=2.2,col='rgba(70,52,48,.72)',seed=0){
+  if(prog<=0) return; const boil=Math.floor(t*12), r=rng(seed*977+boil), n=8, xe=lerp(x0,x1,prog), ye=lerp(y0,y1,prog);
+  g.strokeStyle=col; g.lineWidth=w; g.lineCap='round'; g.beginPath();
+  for(let i=0;i<=n;i++){ const q=i/n, x=lerp(x0,xe,q), y=lerp(y0,ye,q), j=(i===0||i===n)?0:0.9; const px=x+(r()-0.5)*j, py=y+(r()-0.5)*j; i?g.lineTo(px,py):g.moveTo(px,py); } g.stroke();
+}
+function chip(x,y,r,col=[31,124,119],lift=1){ if(r<=0.3) return;
+  shadowed(()=>{ g.fillStyle=rgb(col); g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill(); },0.45*lift);
+  g.fillStyle=rgb(mix(col,[255,255,255],0.35)); g.beginPath(); g.arc(x-r*0.28,y-r*0.3,r*0.38,0,Math.PI*2); g.fill(); }
+function hole(x,y,r){ if(r<=0.3) return;           // a punched hole: you see the table paper below, with the cut edge in shadow
+  g.save(); g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.clip(); g.fillStyle=rgb(PAPER); g.fillRect(x-r,y-r,2*r,2*r);
+  g.shadowColor='rgba(60,30,25,.75)'; g.shadowBlur=7; g.shadowOffsetX=3; g.shadowOffsetY=4; g.lineWidth=4; g.strokeStyle='rgba(120,60,50,1)'; g.beginPath(); g.arc(x,y,r+2,0,Math.PI*2); g.stroke(); g.restore();
+  g.strokeStyle='rgba(255,224,212,.85)'; g.lineWidth=1.2; g.beginPath(); g.arc(x+0.8,y+0.8,r,0.2*Math.PI,1.2*Math.PI,true); g.stroke();
+  g.setLineDash([3,3.5]); g.strokeStyle='rgba(74,48,44,.7)'; g.lineWidth=1.3; g.beginPath(); g.arc(x,y,r+3.5,0,Math.PI*2); g.stroke(); g.setLineDash([]); }
+
+function drawNetwork(P,t,fy,state){
+  const S=(u,v)=>{ const p=A2S(P,u,v); return [p[0],p[1]+fy]; }, k=P[2];
+  const netP=state.netP;
+  EDGES.forEach(([a,b],e)=>{ const A=S(...NODES[a]), B=S(...NODES[b]); pencil(A[0],A[1],B[0],B[1],t,clamp(netP*1.6-e*0.025),2.4*k,'rgba(74,48,44,.75)',e+state.seed); });
+  NODES.forEach((n,i)=>{ const p=S(...n), s=POP(clamp((netP-0.15-i*0.02)*2.2)); if(s<=0) return; const fl=state.flash?state.flash[i]:0;
+    if(fl>0){ g.strokeStyle=`rgba(246,212,30,${(0.9*fl).toFixed(3)})`; g.lineWidth=4*k; g.beginPath(); g.arc(p[0],p[1],(13+22*(1-fl))*k,0,Math.PI*2); g.stroke(); }
+    g.fillStyle='#4A3430'; g.beginPath(); g.arc(p[0],p[1],5.5*k*s,0,Math.PI*2); g.fill(); });
+  SLOTS.forEach((sl,i)=>{ const p=S(...sl), hs=state.hole[i]; if(hs>0) hole(p[0],p[1],15*k*hs); const cs=state.chip[i]; if(cs>0) chip(p[0],p[1],12.5*k*cs); });
+  // travelling pulses
+  if(state.pulses) for(const [e,q] of state.pulses){ const [a,b]=EDGES[e], A=S(...NODES[a]), B=S(...NODES[b]); const x=lerp(A[0],B[0],q), y=lerp(A[1],B[1],q);
+    chip(x,y,8*k,[244,200,22],0.6); }
+}
+
+function drawLabelStrip(t){
+  // which label is current, and how far through the change
+  let i=0; for(let k=0;k<LABELS.length;k++) if(t>=LABELS[k].t) i=k;
+  const cur=LABELS[i], prev=LABELS[Math.max(0,i-1)];
+  if(t<LABELS[0].t) return null;
+  const pad=0.36, geo=L=>{ g.font=`italic 900 ${L.size}px Play`; const w=g.measureText(L.text).width; return {w:w+L.size*pad*2, h:L.size*1.12, x:L.x, y:L.y}; };
+  let G;
+  if(i===0){ const a=geo(cur), p=seg(t,cur.t,0.6,OUT); G={...a, w:a.w*p, x:a.x-a.w/2*(1-p)}; }
+  else { const a=geo(prev), b=geo(cur), p=seg(t,cur.t+0.08,0.85,MOVE); G={w:lerp(a.w,b.w,p),h:lerp(a.h,b.h,p),x:lerp(a.x,b.x,p),y:lerp(a.y,b.y,p)}; }
+  if(G.w<1) return G;
+  const rot=-0.012, f=floatOf(t,2.2);
+  g.save(); g.translate(G.x,G.y+f.y*0.6); g.rotate(rot);
+  // the strip: yellow paper with slightly uneven ends
+  const r=rng(7+i), x0=-G.w/2, y0=-G.h/2;
+  shadowed(()=>{ g.fillStyle='#F4D51C'; g.beginPath(); g.moveTo(x0,y0); g.lineTo(x0+G.w,y0+1.5); g.lineTo(x0+G.w-2,y0+G.h); g.lineTo(x0+1.5,y0+G.h-1); g.closePath(); g.fill(); },0.8);
+  g.fillStyle='rgba(255,255,255,.18)'; g.fillRect(x0,y0,G.w,G.h*0.22);
+  // words: the old line slides up out of the strip, the new one rises in
+  g.beginPath(); g.rect(x0,y0,G.w,G.h); g.clip();
+  g.fillStyle='#1B1A18'; g.textAlign='center'; g.textBaseline='middle';
+  const words=(L,dy)=>{ g.font=`italic 900 ${L.size*(G.h/(L.size*1.12))}px Play`; g.fillText(L.text, 0, dy+G.h*0.04); };
+  if(i===0){ words(cur,(1-seg(t,cur.t+0.3,0.8,OUT))*G.h*1.1); }
+  else { const roll=seg(t,cur.t+0.05,0.8,bezier(0.7,0,0.2,1));     // one continuous roll: the new line pushes the old one out
+    if(roll<1){ g.font=`italic 900 ${prev.size*(G.h/(prev.size*1.12))}px Play`; g.fillText(prev.text,0,-roll*G.h*1.1+G.h*0.04); }
+    words(cur,(1-roll)*G.h*1.1); }
+  g.restore(); return G;
+}
+
+function drawCard(cx,top,t,side){
+  const open=seg(t,T.cards+side*0.12,0.75,MOVE)*(1-seg(t,T.cardsOut+side*0.08,0.5,INOUT));
+  if(open<=0.002) return; const w=470, h=196, f=floatOf(t,3+side);
+  g.save(); g.translate(cx,top+f.y*0.7); g.scale(1,open);
+  shadowed(()=>{ g.fillStyle='#FBFAF6'; g.fillRect(-w/2,0,w,h); },0.8);
+  g.fillStyle='#1B1A18'; g.font='italic 900 30px Play'; g.textAlign='left'; g.textBaseline='alphabetic'; g.fillText(CARD_TITLES[side],-w/2+26,46);
+  // regulated band and the trace
+  const gx0=-w/2+26, gx1=w/2-26, mid=128, band=26;
+  g.fillStyle='rgba(31,124,119,.16)'; g.fillRect(gx0,mid-band,gx1-gx0,band*2);
+  g.setLineDash([6,7]); g.strokeStyle='rgba(70,70,66,.5)'; g.lineWidth=1.4; g.beginPath(); g.moveTo(gx0,mid); g.lineTo(gx1,mid); g.stroke(); g.setLineDash([]);
+  const draw=seg(t,T.graphs+side*0.1,1.2,DRAW), scroll=Math.max(0,t-T.graphs)*70;
+  g.save(); g.beginPath(); g.rect(gx0,58,(gx1-gx0)*draw,h-64); g.clip();
+  g.strokeStyle= side===0 ? '#C8452F' : '#1F7C77'; g.lineWidth=3.2; g.lineJoin='round'; g.beginPath();
+  for(let x=gx0; x<=gx1; x+=3){ const u=x+scroll; const y = side===0 ? mid + 52*vnoise(u/34,3.3)+22*vnoise(u/11,9.1) : mid + 14*Math.sin(u/38);
+    x===gx0?g.moveTo(x,y):g.lineTo(x,y); } g.stroke(); g.restore();
+  g.restore();
+}
+
+function brainState(t,who){
+  const netP=seg(t,T.net,1.2,x=>x);
+  const hole=[], chipS=[];
+  SLOTS.forEach((_,i)=>{ hole[i]=POP(clamp((t-T.holes-i*0.028)/0.45));
+    if(who==='L'){ const base=FILLED_ADHD.has(i)?POP(clamp((t-T.holes-0.55-i*0.02)/0.5)):0, fillLate=POP(clamp((t-T.fill-((i*7)%SLOTS.length)*0.035)/0.45)); chipS[i]=Math.max(base,fillLate); }
+    else { const base=FILLED_ADHD.has(i)?POP(clamp((t-T.holes-0.55-i*0.02)/0.5)):0, more=POP(clamp((t-T.split-0.55-((i*5)%SLOTS.length)*0.03)/0.45)); chipS[i]=Math.max(base,more)*(1-seg(t,T.morph-0.15,0.32,INOUT)); } });
+  let pulses=null, flash=null;
+  if(who==='L' && t>T.pulse){ pulses=[]; flash=NODES.map(()=>0);
+    EDGES.forEach((e,k)=>{ const per=0.55+((k*37)%9)*0.05, off=((k*53)%17)/17, ph=(t-T.pulse)/per+off, q=ph-Math.floor(ph), dir=k%2; if(t-T.pulse < off*per) return;
+      pulses.push([k, dir?1-q:q]); const arrive=dir?e[0]:e[1]; flash[arrive]=Math.max(flash[arrive], clamp(1-q*4)); }); }
+  if(who==='R' && t>T.split+1.4 && t<T.morph){ pulses=[]; EDGES.forEach((e,k)=>{ const per=1.6, ph=(t-T.split)/per+((k*29)%13)/13, q=ph-Math.floor(ph); pulses.push([k,q]); }); }
+  return {netP, hole, chip:chipS, pulses, flash, seed: who==='L'?0:500};
+}
+
+function render(t){
+  g.setTransform(2,0,0,2,0,0);
+  g.fillStyle=rgb(PAPER); g.fillRect(0,0,W,H);
+  // slow camera drift + a gentle push at the end
+  const cam=1+0.018*seg(t,0,DURATION,x=>x)+0.035*seg(t,T.iris,2.0,SOFT);
+  g.setTransform(2*cam,0,0,2*cam,(1-cam)*W, (1-cam)*H*1.04);
+  g.drawImage(GRID,0,0,W,H);
+
+  // ---- the second brain ("other people"), slides out from behind, later folds into the star ----
+  if(t>=T.split){
+    const P=brainR(t), m=seg(t,T.morph,T.morphDur,bezier(0.6,0,0.2,1));
+    const SP=[STAR.x,STAR.y]; const pos=[lerp(P[0],SP[0],MOVE(clamp((t-T.morph)/1.1))), lerp(P[1],SP[1],MOVE(clamp((t-T.morph)/1.1)))];
+    if(m<=0){ const f=drawBrainImage(P,t,1.3); if(t<T.morph) drawNetwork(P,t,f.y,brainState(t,'R')); }
+    else {
+      // shape morph: brain silhouette -> five-point paper star; the folds recede into the centre as it folds
+      const f=floatOf(t,1.3), sc=P[2], spin=(1-m)*0+m*(-0.06+0.07*Math.sin(t*0.8));
+      const star=starPoly(); let best=0, bd=1e18; for(let o=0;o<MORPH_N;o+=2){ let d=0; for(let k=0;k<MORPH_N;k+=6){ const a=OUTLINE[k], b=star[(k+o)%MORPH_N]; d+=Math.hypot((a[0]-AW/2)*sc-b[0]*STAR.R,(a[1]-AH/2)*sc-b[1]*STAR.R); } if(d<bd){bd=d;best=o;} }
+      const pts=OUTLINE.map((a,k)=>{ const b=star[(k+best)%MORPH_N]; const bx=(a[0]-AW/2)*sc, by=(a[1]-AH/2)*sc, sx=b[0]*STAR.R, sy=b[1]*STAR.R; return [lerp(bx,sx,m),lerp(by,sy,m)]; });
+      const cx=pos[0], cy=pos[1]+f.y;
+      g.save(); g.translate(cx,cy); g.rotate(spin);
+      const col=mix([238,150,130],[242,178,26],m);
+      shadowed(()=>{ g.fillStyle=rgb(col); g.beginPath(); pts.forEach((p,k)=>k?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); g.fill(); },1);
+      // folds shrinking away inside the morphing shape
+      g.save(); g.beginPath(); pts.forEach((p,k)=>k?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); g.clip();
+      // a hard-edged sweep turns the folded paper into gold as the outline re-forms
+      const wx=lerp(-AW/2*sc-30, AW/2*sc+30, clamp(m/0.62)), lean=60;
+      if(m<0.62){ g.save(); g.beginPath(); g.moveTo(wx+lean,-600); g.lineTo(3000,-600); g.lineTo(3000,600); g.lineTo(wx-lean,600); g.closePath(); g.clip();
+        g.drawImage(BRAIN,-AW/2*sc,-AH/2*sc,AW*sc,AH*sc); g.restore();
+        g.strokeStyle='rgba(120,80,20,.55)'; g.lineWidth=1.6; g.beginPath(); g.moveTo(wx+lean,-600); g.lineTo(wx-lean,600); g.stroke(); }
+      // origami facets: each star point creased into a light and a dark half (grows in with the morph)
+      for(let k=0;k<MORPH_N;k++){ const a=pts[k], b=pts[(k+1)%MORPH_N], side=Math.floor(((k+best+MORPH_N)%MORPH_N)/(MORPH_N/10))%2;
+        g.fillStyle= side? `rgba(255,236,170,${(0.42*m).toFixed(3)})` : `rgba(150,92,10,${(0.22*m).toFixed(3)})`; g.beginPath(); g.moveTo(0,0); g.lineTo(a[0],a[1]); g.lineTo(b[0],b[1]); g.closePath(); g.fill(); }
+      g.restore();
+      g.strokeStyle=`rgba(255,240,200,${(0.7*m).toFixed(3)})`; g.lineWidth=1.4; g.beginPath(); pts.forEach((p,k)=>k?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.closePath(); g.stroke();
+      g.restore();
+      // pencil "sparkle" ticks once it is a star
+      const tk=seg(t,T.ticks,0.6,DRAW); for(let k=0;k<7;k++){ const a=-Math.PI/2+k*Math.PI*2/7+0.2, r0=STAR.R*1.12, r1=STAR.R*(1.32+0.06*(k%2));
+        pencil(cx+Math.cos(a)*r0,cy+Math.sin(a)*r0,cx+Math.cos(a)*lerp(r0,r1,1),cy+Math.sin(a)*lerp(r0,r1,1),t,tk,3,'rgba(70,60,40,.75)',900+k); }
+    }
+  }
+  // ---- the ADHD brain ----
+  const PL=brainL(t), excite=1+0.03*POP(clamp((t-T.pulse)/0.6)), PLx=[PL[0],PL[1],PL[2]*excite];
+  const fL=drawBrainImage(PLx,t,0);
+  drawNetwork(PLx,t,fL.y,brainState(t,'L'));
+
+  // ---- regulation cards ----
+  if(t>T.cards-0.1 && t<T.cardsOut+0.8){ drawCard(POS.CL[0],680,t,0); drawCard(POS.CR[0],680,t,1); }
+
+  // ---- interest -> sparks fly to the brain along a pencil path ----
+  if(t>T.sparks && t<T.fill+0.9){ const A=[STAR.x-STAR.R*0.55,STAR.y-30], B=A2S(PLx,560,190);
+    const cpx=(A[0]+B[0])/2, cpy=Math.min(A[1],B[1])-170, dash=seg(t,T.sparks,0.5,DRAW)*(1-seg(t,T.fill+0.35,0.5,INOUT));
+    const Q=q=>[ (1-q)*(1-q)*A[0]+2*(1-q)*q*cpx+q*q*B[0], (1-q)*(1-q)*A[1]+2*(1-q)*q*cpy+q*q*B[1] ];
+    const q0=seg(t,T.fill+0.35,0.5,INOUT), q1=dash;
+    if(q1>q0){ g.setLineDash([10,12]); g.strokeStyle='rgba(70,60,40,.6)'; g.lineWidth=2.4; g.beginPath(); for(let k=0;k<=40;k++){ const q=lerp(q0,q1,k/40), p=Q(q); k?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]); } g.stroke(); g.setLineDash([]); }
+    for(let s=0;s<3;s++){ const q=seg(t,T.sparks+0.15+s*0.14,0.55,bezier(0.5,0,0.3,1)); if(q<=0||q>=1) continue; const p=Q(q); chip(p[0],p[1],9*(1-0.4*q),[244,200,22],0.6); } }
+
+  // ---- focus: vellum beam from brain to the interest, and a dark paper frame closing in ----
+  if(t>T.beam){ const b=seg(t,T.beam,0.8,OUT), A=A2S(PLx,600,200), Bc=[STAR.x,STAR.y+floatOf(t,1.3).y], dx=Bc[0]-A[0], dy=Bc[1]-A[1], L=Math.hypot(dx,dy), ux=dx/L, uy=dy/L, nx=-uy, ny=ux;
+    const end=[A[0]+dx*b, A[1]+dy*b], wE=STAR.R*1.05*b, wA=14;
+    g.save(); g.globalCompositeOperation='multiply'; g.fillStyle='rgba(246,218,40,.42)';
+    g.beginPath(); g.moveTo(A[0]+nx*wA,A[1]+ny*wA); g.lineTo(end[0]+nx*wE,end[1]+ny*wE); g.lineTo(end[0]-nx*wE,end[1]-ny*wE); g.lineTo(A[0]-nx*wA,A[1]-ny*wA); g.closePath(); g.fill(); g.restore();
+    pencil(A[0]+nx*wA,A[1]+ny*wA,end[0]+nx*wE,end[1]+ny*wE,t,1,1.6,'rgba(120,96,20,.55)',77); pencil(A[0]-nx*wA,A[1]-ny*wA,end[0]-nx*wE,end[1]-ny*wE,t,1,1.6,'rgba(120,96,20,.55)',78); }
+
+  g.setTransform(2,0,0,2,0,0);
+  if(t>T.iris){ const p=seg(t,T.iris,1.1,MOVE), x0=lerp(-80,250,p), y0=lerp(-80,150,p), x1=lerp(2000,1670,p), y1=lerp(1160,935,p), R=lerp(0,36,p);
+    g.save(); g.shadowColor='rgba(0,0,0,.45)'; g.shadowBlur=26; g.shadowOffsetY=8;
+    g.fillStyle='#2A2926'; g.beginPath(); g.rect(-200,-200,W+400,H+400); g.roundRect(x0,y0,x1-x0,y1-y0,R); g.fill('evenodd'); g.restore(); }
+  // label strip sits on top of everything
+  g.setTransform(2*cam,0,0,2*cam,(1-cam)*W,(1-cam)*H*1.04);
+  window.__label=drawLabelStrip(t);
+  // paper grain over the whole table
+  g.setTransform(2,0,0,2,0,0); g.save(); g.globalCompositeOperation='multiply'; g.globalAlpha=0.22; g.drawImage(GRAIN,0,0); g.restore();
+  // soft vignette like a lit table
+  const vg=g.createRadialGradient(960,520,520,960,540,1250); vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(40,36,30,.16)'); g.fillStyle=vg; g.fillRect(0,0,W,H);
+}
+
+window.ready=(async()=>{
+  await Promise.all([document.fonts.load('italic 900 60px Play'),document.fonts.load('600 20px GText')]); await document.fonts.ready;
+  buildPaper(); buildBrain(); buildNetwork(); render(0); return true;
+})();
+window.render=render;
+window.__data={LABELS,CARD_TITLES,DURATION,T,NODES:()=>NODES,EDGES:()=>EDGES,SLOTS:()=>SLOTS,FILLED_ADHD,brainState,brainL,brainR,STAR};
+const q=new URLSearchParams(location.search);
+if(!q.has('capture')) window.ready.then(()=>{ if(q.has('t')){render(+q.get('t'));return;} const t0=performance.now(); const loop=n=>{render(((n-t0)/1000)%(DURATION+0.5)); requestAnimationFrame(loop);}; requestAnimationFrame(loop); });
+</script>
+</body>
+</html>
